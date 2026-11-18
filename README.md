@@ -1,10 +1,18 @@
 # SmartKeyBinds
 
+> \[\!WARNING\] **Work in Progress — Complete Rewrite** SmartKeyBinds is currently being rewritten from the ground up, migrating the original [LX-macros](<https://github.com/NewHere3/LX-macros>) project from **X11 to Wayland (KDE Plasma / KWin)**.
+>
+> This repository represents an ongoing development effort. APIs, architecture, features, and implementation details are subject to change. The project is not yet considered stable or feature-complete.
+
 **A context-aware keyboard interception and remapping framework for KDE Plasma / KWin.**
 
-SmartKeyBinds allows users to completely customize keyboard behavior using statically compiled C++ macros.
+SmartKeyBinds is the Wayland successor to [LX-macros](<https://github.com/NewHere3/LX-macros>), a context-aware keyboard macro and remapping system originally developed for X11.
 
-Unlike traditional keyboard remappers, SmartKeyBinds can make decisions based on desktop state, such as the currently active window. Users write C++ functions that define what should happen when specific keys are pressed, with access to convenient input and context APIs provided by the project.
+The goal of this rewrite is to preserve the flexibility and programmability of the original project while adapting its architecture to Wayland.
+
+SmartKeyBinds allows users to customize keyboard behavior using statically compiled C++ macros. Unlike traditional keyboard remappers, it can make decisions based on desktop state, such as the currently active window.
+
+Users write C++ functions that define what should happen when specific keys are pressed, with access to input and context APIs provided by the project.
 
 ## Features
 
@@ -14,7 +22,17 @@ Unlike traditional keyboard remappers, SmartKeyBinds can make decisions based on
 - **Virtual input devices:** Reproduce keyboard events through virtual devices.
 - **Default passthrough:** Keys without custom handlers retain their original behavior.
 - **Extensible context providers:** KWin is the initial provider; additional providers can be implemented in the future.
-- **Convenient API:** Macros use high-level functions such as `press_key()` instead of dealing directly with Linux input events.
+- **Convenient API:** Macros use high-level functions for interacting with keyboard input rather than dealing directly with Linux input events.
+
+## Rewrite goals
+
+The original LX-macros project was built around X11. This rewrite aims to bring its functionality to Wayland without relying on X11-specific mechanisms.
+
+Key goals include:
+
+- Integrate with KWin to obtain desktop context that is otherwise inaccessible to ordinary Wayland applications.
+- Preserve the flexibility of writing arbitrary C++ macro logic.
+- Provide a cleaner and more extensible architecture for future development.
 
 ## Architecture
 
