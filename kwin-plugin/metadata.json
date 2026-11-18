@@ -1,0 +1,8 @@
+{
+    "KPlugin": {
+        "Name": "KWinBridge",
+        "Description": "External interface for KWin state and commands",
+        "Version": "0.1.0",
+        "EnabledByDefault": true
+    }
+}
