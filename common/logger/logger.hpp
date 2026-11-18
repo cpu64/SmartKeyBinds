@@ -24,7 +24,7 @@ struct LogMessage
     LogLevel level;
     std::string message;
     std::chrono::system_clock::time_point timestamp;
-    std::thread::id threadId;
+    std::thread::id thread_id;
 
     std::source_location location;
 };
@@ -42,7 +42,7 @@ class Logger final
 {
   public:
     Logger();
-    Logger(std::vector<std::unique_ptr<LogSink>> sinks) : sinks_(std::move(sinks))
+    Logger(std::vector<std::unique_ptr<LogSink>> sinks) : m_sinks(std::move(sinks))
     {
     }
     ~Logger();
@@ -53,7 +53,7 @@ class Logger final
     Logger(Logger &&) = delete;
     Logger &operator=(Logger &&) = delete;
 
-    void addSink(std::unique_ptr<LogSink> sink);
+    void add_sink(std::unique_ptr<LogSink> sink);
 
     void info(std::string message, const std::source_location &location = std::source_location::current());
 
@@ -61,7 +61,7 @@ class Logger final
 
     void error(std::string message, const std::source_location &location = std::source_location::current());
 
-    void Errno(std::string message, const std::source_location &location = std::source_location::current())
+    void error_errno(std::string message, const std::source_location &location = std::source_location::current())
     {
         error(message, location);
     }
@@ -80,24 +80,24 @@ class Logger final
     };
 
     void log(LogLevel level, std::string message, const std::source_location &location);
-    void processMessages();
+    void process_messages();
 
-    std::queue<LogMessage> queue_;
+    std::queue<LogMessage> m_queue;
 
-    std::mutex queueMutex_;
-    std::condition_variable queueCondition_;
+    std::mutex m_queueMutex;
+    std::condition_variable m_queueCondition;
 
     // Serializes concurrent shutdown/join operations.
-    std::mutex shutdownMutex_;
+    std::mutex m_shutdownMutex;
 
-    std::vector<std::unique_ptr<LogSink>> sinks_;
+    std::vector<std::unique_ptr<LogSink>> m_sinks;
 
-    std::jthread worker_;
+    std::jthread m_worker;
 
-    State state_ = State::Created;
+    State m_state = State::Created;
 
     // Protected by queueMutex_.
-    std::thread::id workerThreadId_;
+    std::thread::id m_workerThreadId;
 };
 
 class GlobalLogger final

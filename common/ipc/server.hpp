@@ -27,52 +27,52 @@ class SeqpacketServer
     using Packet = std::vector<std::byte>;
     using PacketHandler = std::function<void(const Packet &)>;
 
-    static constexpr std::size_t MaxQueuedPackets = 256;
+    static constexpr std::size_t MAX_QUEUED_PACKETS = 256;
 
-    explicit SeqpacketServer(std::string_view socketName, logging::Logger &logger, PacketHandler handler = {});
+    explicit SeqpacketServer(std::string_view socket_name, logging::Logger &logger, PacketHandler handler = {});
 
     ~SeqpacketServer();
 
     SeqpacketServer(const SeqpacketServer &) = delete;
     SeqpacketServer &operator=(const SeqpacketServer &) = delete;
 
-    bool Send(const void *data, std::size_t size);
+    bool send(const void *data, std::size_t size);
 
-    bool Send(const Packet &packet)
+    bool send(const Packet &packet)
     {
-        return Send(packet.data(), packet.size());
+        return send(packet.data(), packet.size());
     }
 
-    bool IsRunning() const
+    bool is_running() const
     {
         return m_running.load();
     }
 
-    bool IsConnected() const
+    bool is_connected() const
     {
         return m_connected.load();
     }
 
   private:
-    void Wake();
+    void wake();
 
-    void DrainWakeFd();
+    void drain_wake_fd();
 
-    bool HasQueuedPackets();
+    bool has_queued_packets();
 
-    void SetConnected(bool connected);
+    void set_connected(bool connected);
 
-    void DropConnection(int &fd, std::string_view reason);
+    void drop_connection(int &fd, std::string_view reason);
 
-    void AcceptPendingConnections(int &clientFd);
+    void accept_pending_connections(int &client_fd);
 
-    bool ReceivePackets(int fd);
+    bool receive_packets(int fd);
 
-    bool SendQueuedPackets(int fd);
+    bool send_queued_packets(int fd);
 
-    void IoThread();
+    void io_thread();
 
-    void CleanupSetup();
+    void cleanup_setup();
 
     std::string m_socketName;
     PacketHandler m_handler;

@@ -1,23 +1,20 @@
-#include "input_listener.hpp"
-// #include "global_state.hpp"
-#include "context.hpp"
-#include "fake_input.hpp"
-#include "macro_registry.hpp"
-#include "thread_pool.hpp"
+#include "./input_listener.hpp"
+
+#include "./context.hpp"
+#include "./fake_input.hpp"
+#include "./macro_registry.hpp"
+#include "./thread_pool.hpp"
 
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
-#include <iostream>
 #include <linux/input.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
-#include <unordered_map>
 #include <vector>
 
-// extern GlobalState global_state;
 extern Context ctx;
 
 namespace
@@ -25,24 +22,24 @@ namespace
 
 int open_input_device(const char *device_path)
 {
-    const int device_fd = open(device_path, O_RDONLY | O_NONBLOCK);
+    const int DeviceFd = open(device_path, O_RDONLY | O_NONBLOCK);
 
-    if (device_fd == -1)
+    if (DeviceFd == -1)
     {
         std::fprintf(stderr, "Failed to open input device '%s': %s\n", device_path, std::strerror(errno));
 
         return -1;
     }
 
-    if (ioctl(device_fd, EVIOCGRAB, 1) == -1)
+    if (ioctl(DeviceFd, EVIOCGRAB, 1) == -1)
     {
         std::fprintf(stderr, "Failed to grab input device '%s': %s\n", device_path, std::strerror(errno));
 
-        close(device_fd);
+        close(DeviceFd);
         return -1;
     }
 
-    return device_fd;
+    return DeviceFd;
 }
 
 void dispatch_key_event(const input_event &event)
@@ -78,11 +75,11 @@ void dispatch_key_event(const input_event &event)
 
 } // namespace
 
-void listen_to_devices(const std::vector<std::string> &device_paths)
+void listen_to_devices(std::vector<std::string> device_paths)
 {
-    const int epoll_fd = epoll_create1(0);
+    const int EpollFd = epoll_create1(0);
 
-    if (epoll_fd == -1)
+    if (EpollFd == -1)
     {
         std::perror("epoll_create1");
         return;
@@ -92,37 +89,37 @@ void listen_to_devices(const std::vector<std::string> &device_paths)
 
     for (const auto &device_path : device_paths)
     {
-        const int fd = open_input_device(device_path.c_str());
+        const int Fd = open_input_device(device_path.data());
 
-        if (fd == -1)
+        if (Fd == -1)
             continue;
 
         epoll_event event{};
         event.events = EPOLLIN;
-        event.data.fd = fd;
+        event.data.fd = Fd;
 
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) == -1)
+        if (epoll_ctl(EpollFd, EPOLL_CTL_ADD, Fd, &event) == -1)
         {
-            std::fprintf(stderr, "Failed to register input device '%s': %s\n", device_path.c_str(),
+            std::fprintf(stderr, "Failed to register input device '%s': %s\n", device_path.data(),
                          std::strerror(errno));
 
-            close(fd);
+            close(Fd);
             continue;
         }
 
-        device_fds.push_back(fd);
+        device_fds.push_back(Fd);
     }
 
-    constexpr int MAX_EVENTS = 16;
-    epoll_event events[MAX_EVENTS];
+    constexpr int MaxEvents = 16;
+    epoll_event events[MaxEvents];
 
     input_event event{};
 
     while (true)
     {
-        const int event_count = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        const int EventCount = epoll_wait(EpollFd, events, MaxEvents, -1);
 
-        if (event_count == -1)
+        if (EventCount == -1)
         {
             if (errno == EINTR)
                 continue;
@@ -131,9 +128,9 @@ void listen_to_devices(const std::vector<std::string> &device_paths)
             break;
         }
 
-        for (int i = 0; i < event_count; ++i)
+        for (int i = 0; i < EventCount; ++i)
         {
-            const int fd = events[i].data.fd;
+            const int Fd = events[i].data.fd;
 
             if (events[i].events & (EPOLLERR | EPOLLHUP))
                 continue;
@@ -143,9 +140,9 @@ void listen_to_devices(const std::vector<std::string> &device_paths)
 
             while (true)
             {
-                const ssize_t bytes_read = read(fd, &event, sizeof(event));
+                const ssize_t BytesRead = read(Fd, &event, sizeof(event));
 
-                if (bytes_read == -1)
+                if (BytesRead == -1)
                 {
                     if (errno == EINTR)
                         continue;
@@ -158,10 +155,10 @@ void listen_to_devices(const std::vector<std::string> &device_paths)
                     break;
                 }
 
-                if (bytes_read == 0)
+                if (BytesRead == 0)
                     break;
 
-                if (bytes_read != sizeof(event))
+                if (BytesRead != sizeof(event))
                     continue;
 
                 switch (event.type)
@@ -182,8 +179,8 @@ void listen_to_devices(const std::vector<std::string> &device_paths)
         }
     }
 
-    for (const int fd : device_fds)
-        close(fd);
+    for (const int Fd : device_fds)
+        close(Fd);
 
-    close(epoll_fd);
+    close(EpollFd);
 }

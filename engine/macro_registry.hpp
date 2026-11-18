@@ -1,10 +1,8 @@
 #pragma once
 
-#include "fake_input.hpp"
-#include <linux/input.h>
-
 #include <array>
 #include <cstddef>
+#include <linux/input.h>
 
 // --------------------------------------------------
 // Registration macros
@@ -56,25 +54,25 @@ class MacroRegistry
         if (key < 0 || key >= NUMBER_OF_KEYS)
             return;
 
-        bindings[key] = {function, separate_thread};
+        m_bindings[key] = {function, separate_thread};
     }
 
     const KeyBinding &get(int key) const
     // const KeyBinding get(int key) const
     {
-        static const KeyBinding empty{};
+        static const KeyBinding Empty{};
 
         if (key < 0 || key >= NUMBER_OF_KEYS)
         {
             // return KeyBinding{&pass_event_on, false};
-            return empty;
+            return Empty;
         }
 
-        return bindings[key];
+        return m_bindings[key];
     }
 
   private:
-    std::array<KeyBinding, NUMBER_OF_KEYS> bindings{};
+    std::array<KeyBinding, NUMBER_OF_KEYS> m_bindings{};
 };
 
 // --------------------------------------------------

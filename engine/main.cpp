@@ -1,9 +1,9 @@
-#include <iostream>
-#include <thread>
-#include <vector>
-
+#include "./config.hpp"
 #include "./context.hpp"
 #include "./input_listener.hpp"
+
+#include <iostream>
+#include <thread>
 
 Context ctx;
 
@@ -11,9 +11,7 @@ int main()
 {
     std::cout << "SmartKeyBinds controller starting\n";
 
-    std::thread t_keyboard(listen_to_devices,
-                           std::vector<std::string>{"/dev/input/by-id/usb-Logitech_USB_Receiver-event-kbd",
-                                                    "/dev/input/by-id/usb-Logitech_USB_Receiver-if02-event-mouse"});
+    std::thread t_keyboard(listen_to_devices, Devices);
 
     std::cout << "SmartKeyBinds controller running\n";
 

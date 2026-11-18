@@ -20,11 +20,11 @@ class Bridge : public Plugin
     ~Bridge();
 
   private Q_SLOTS:
-    void windowActivated(KWin::Window *window);
+    void window_activated(KWin::Window *window);
 
   private:
-    void packetHandler(const SeqpacketServer::Packet &packet);
-    void sendCursorPos(std::uint64_t id);
+    void packet_handler(const SeqpacketServer::Packet &packet);
+    void send_cursor_pos(std::uint64_t id);
     logging::Logger m_logger;
     SeqpacketServer m_server;
 };

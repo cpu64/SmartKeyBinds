@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace SKB
+namespace kwin_messages
 {
 
 struct ActiveWindowChanged
@@ -23,4 +23,4 @@ struct CursorPosition
     int y;
 };
 
-} // namespace SKB
+} // namespace kwin_messages

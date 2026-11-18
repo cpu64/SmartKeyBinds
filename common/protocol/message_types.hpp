@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace SKB
+namespace kwin_messages
 {
 
 enum class MessageType : std::uint8_t
@@ -12,4 +12,4 @@ enum class MessageType : std::uint8_t
     CursorPosition = 3
 };
 
-} // namespace SKB
+} // namespace kwin_messages

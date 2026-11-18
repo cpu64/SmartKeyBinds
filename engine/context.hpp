@@ -1,8 +1,8 @@
 #pragma once
 
-#include "macro_registry.hpp"
+#include "./OverlayManager.hpp"
+#include "./macro_registry.hpp"
 
-#include "./overlay/OverlayManager.hpp"
 #include "ipc/client.hpp"
 #include "protocol/messages.hpp"
 
@@ -16,11 +16,12 @@ struct Context
 
     mutable std::mutex active_window_mutex;
     std::string active_window_name;
-    std::string GetActiveWindowName() const;
+    std::string get_active_window_name() const;
 
-    std::optional<SKB::CursorPosition> GetMousePosition(std::chrono::milliseconds timeout = std::chrono::seconds(2));
+    std::optional<kwin_messages::CursorPosition> get_mouse_position(
+        std::chrono::milliseconds timeout = std::chrono::seconds(2));
 
-    SeqpacketClient kwinBridge;
+    SeqpacketClient kwin_bridge;
 
     Context();
     ~Context();
@@ -34,15 +35,15 @@ struct Context
         std::condition_variable cv;
 
         bool completed = false;
-        std::optional<SKB::CursorPosition> response;
+        std::optional<kwin_messages::CursorPosition> response;
     };
 
-    std::atomic<std::uint64_t> next_request_id{1};
+    std::atomic<std::uint64_t> m_next_request_id{1};
 
-    std::mutex pending_requests_mutex;
+    std::mutex m_pending_requests_mutex;
 
-    std::unordered_map<std::uint64_t, std::shared_ptr<PendingRequest>> pending_requests;
+    std::unordered_map<std::uint64_t, std::shared_ptr<PendingRequest>> m_pending_requests;
 
-    void CompleteCursorRequest(const SKB::CursorPosition &response);
-    void FailPendingRequests();
+    void complete_cursor_request(const kwin_messages::CursorPosition &response);
+    void fail_pending_requests();
 };

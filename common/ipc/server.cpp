@@ -19,8 +19,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-SeqpacketServer::SeqpacketServer(std::string_view socketName, logging::Logger &logger, PacketHandler handler)
-    : m_socketName(socketName), m_logger(logger), m_handler(std::move(handler))
+SeqpacketServer::SeqpacketServer(std::string_view socket_name, logging::Logger &logger, PacketHandler handler)
+    : m_socketName(socket_name), m_logger(logger), m_handler(std::move(handler))
 {
     if (m_socketName.empty() || m_socketName.size() >= sizeof(sockaddr_un::sun_path))
     {
@@ -31,7 +31,7 @@ SeqpacketServer::SeqpacketServer(std::string_view socketName, logging::Logger &l
     // Remove a stale socket entry.
     if (::unlink(m_socketName.c_str()) < 0 && errno != ENOENT)
     {
-        m_logger.Errno("unlink() failed");
+        m_logger.error_errno("unlink() failed");
         return;
     }
 
@@ -39,7 +39,7 @@ SeqpacketServer::SeqpacketServer(std::string_view socketName, logging::Logger &l
 
     if (m_listenFd < 0)
     {
-        m_logger.Errno("socket() failed");
+        m_logger.error_errno("socket() failed");
         return;
     }
 
@@ -48,12 +48,12 @@ SeqpacketServer::SeqpacketServer(std::string_view socketName, logging::Logger &l
     std::memcpy(addr.sun_path, m_socketName.data(), m_socketName.size());
     addr.sun_path[m_socketName.size()] = '\0';
 
-    const socklen_t len = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + m_socketName.size() + 1);
+    const socklen_t Len = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + m_socketName.size() + 1);
 
-    if (::bind(m_listenFd, reinterpret_cast<sockaddr *>(&addr), len) < 0)
+    if (::bind(m_listenFd, reinterpret_cast<sockaddr *>(&addr), Len) < 0)
     {
-        m_logger.Errno("bind() failed");
-        CleanupSetup();
+        m_logger.error_errno("bind() failed");
+        cleanup_setup();
         return;
     }
 
@@ -61,15 +61,15 @@ SeqpacketServer::SeqpacketServer(std::string_view socketName, logging::Logger &l
 
     if (::chmod(m_socketName.c_str(), 0600) < 0)
     {
-        m_logger.Errno("chmod() failed");
-        CleanupSetup();
+        m_logger.error_errno("chmod() failed");
+        cleanup_setup();
         return;
     }
 
     if (::listen(m_listenFd, 4) < 0)
     {
-        m_logger.Errno("listen() failed");
-        CleanupSetup();
+        m_logger.error_errno("listen() failed");
+        cleanup_setup();
         return;
     }
 
@@ -77,27 +77,27 @@ SeqpacketServer::SeqpacketServer(std::string_view socketName, logging::Logger &l
 
     if (m_wakeFd < 0)
     {
-        m_logger.Errno("eventfd() failed");
-        CleanupSetup();
+        m_logger.error_errno("eventfd() failed");
+        cleanup_setup();
         return;
     }
 
     try
     {
         m_running.store(true);
-        m_thread = std::thread(&SeqpacketServer::IoThread, this);
+        m_thread = std::thread(&SeqpacketServer::io_thread, this);
     }
     catch (const std::exception &e)
     {
         m_logger.error(std::string("Failed to start I/O thread: ") + e.what());
-        CleanupSetup();
+        cleanup_setup();
     }
 }
 
 SeqpacketServer::~SeqpacketServer()
 {
     m_stopping.store(true);
-    Wake();
+    wake();
 
     if (m_thread.joinable())
         m_thread.join();
@@ -115,7 +115,7 @@ SeqpacketServer::~SeqpacketServer()
 // Nonblocking with respect to socket I/O.
 // Copies the packet before returning.
 // Returns false if disconnected, invalid, or queue is full.
-bool SeqpacketServer::Send(const void *data, std::size_t size)
+bool SeqpacketServer::send(const void *data, std::size_t size)
 {
     if (data == nullptr || size == 0)
         return false;
@@ -126,44 +126,44 @@ bool SeqpacketServer::Send(const void *data, std::size_t size)
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
 
-        if (!m_connected.load() || m_stopping.load() || m_queue.size() >= MaxQueuedPackets)
+        if (!m_connected.load() || m_stopping.load() || m_queue.size() >= MAX_QUEUED_PACKETS)
         {
             return false;
         }
 
         m_queue.push_back(std::move(packet));
-        Wake();
+        wake();
     }
 
     return true;
 }
 
-void SeqpacketServer::Wake()
+void SeqpacketServer::wake()
 {
     if (m_wakeFd < 0)
         return;
 
-    const std::uint64_t value = 1;
+    const std::uint64_t Value = 1;
 
     for (;;)
     {
-        const ssize_t rc = ::write(m_wakeFd, &value, sizeof(value));
+        const ssize_t Rc = ::write(m_wakeFd, &Value, sizeof(Value));
 
-        if (rc == sizeof(value))
+        if (Rc == sizeof(Value))
             return;
 
-        if (rc < 0 && errno == EINTR)
+        if (Rc < 0 && errno == EINTR)
             continue;
 
-        if (rc < 0 && errno == EAGAIN)
+        if (Rc < 0 && errno == EAGAIN)
             return;
 
-        m_logger.Errno("eventfd write failed");
+        m_logger.error_errno("eventfd write failed");
         return;
     }
 }
 
-void SeqpacketServer::DrainWakeFd()
+void SeqpacketServer::drain_wake_fd()
 {
     std::uint64_t value;
     while (::read(m_wakeFd, &value, sizeof(value)) > 0)
@@ -171,13 +171,13 @@ void SeqpacketServer::DrainWakeFd()
     }
 }
 
-bool SeqpacketServer::HasQueuedPackets()
+bool SeqpacketServer::has_queued_packets()
 {
     std::lock_guard<std::mutex> lock(m_queueMutex);
     return !m_queue.empty();
 }
 
-void SeqpacketServer::SetConnected(bool connected)
+void SeqpacketServer::set_connected(bool connected)
 {
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
@@ -187,7 +187,7 @@ void SeqpacketServer::SetConnected(bool connected)
         m_queue.clear();
 }
 
-void SeqpacketServer::DropConnection(int &fd, std::string_view reason)
+void SeqpacketServer::drop_connection(int &fd, std::string_view reason)
 {
     if (fd >= 0)
     {
@@ -195,67 +195,67 @@ void SeqpacketServer::DropConnection(int &fd, std::string_view reason)
         fd = -1;
     }
 
-    SetConnected(false);
+    set_connected(false);
     m_logger.warning(std::string(reason));
 }
 
-void SeqpacketServer::AcceptPendingConnections(int &clientFd)
+void SeqpacketServer::accept_pending_connections(int &client_fd)
 {
     for (;;)
     {
-        const int fd = ::accept4(m_listenFd, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
+        const int Fd = ::accept4(m_listenFd, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
 
-        if (fd < 0)
+        if (Fd < 0)
         {
             if (errno == EINTR)
                 continue;
 
             if (errno != EAGAIN && errno != EWOULDBLOCK)
-                m_logger.Errno("accept4() failed");
+                m_logger.error_errno("accept4() failed");
 
             return;
         }
 
         // Reject immediately if a client is already connected.
-        if (clientFd >= 0)
+        if (client_fd >= 0)
         {
             m_logger.warning("Rejecting client: another client is connected");
-            ::close(fd);
+            ::close(Fd);
             continue;
         }
 
         ucred cred{};
-        socklen_t credLen = sizeof(cred);
+        socklen_t cred_len = sizeof(cred);
 
-        if (::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &credLen) < 0)
+        if (::getsockopt(Fd, SOL_SOCKET, SO_PEERCRED, &cred, &cred_len) < 0)
         {
-            m_logger.Errno("SO_PEERCRED failed");
-            ::close(fd);
+            m_logger.error_errno("SO_PEERCRED failed");
+            ::close(Fd);
             continue;
         }
 
         if (cred.uid != 0)
         {
             m_logger.warning("Rejecting non-root client");
-            ::close(fd);
+            ::close(Fd);
             continue;
         }
 
-        clientFd = fd;
-        SetConnected(true);
+        client_fd = Fd;
+        set_connected(true);
         m_logger.info("Root client connected");
     }
 }
 
-bool SeqpacketServer::ReceivePackets(int fd)
+bool SeqpacketServer::receive_packets(int fd)
 {
     Packet packet(65536);
 
     for (;;)
     {
-        const ssize_t bytes = ::recv(fd, packet.data(), packet.size(), MSG_DONTWAIT);
+        const ssize_t Bytes = ::recv(fd, packet.data(), packet.size(), MSG_DONTWAIT);
 
-        if (bytes < 0)
+        if (Bytes < 0)
         {
             if (errno == EINTR)
                 continue;
@@ -263,17 +263,17 @@ bool SeqpacketServer::ReceivePackets(int fd)
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 return true;
 
-            m_logger.Errno("recv() failed");
+            m_logger.error_errno("recv() failed");
             return false;
         }
 
-        if (bytes == 0)
+        if (Bytes == 0)
         {
             m_logger.info("Client disconnected");
             return false;
         }
 
-        packet.resize(static_cast<std::size_t>(bytes));
+        packet.resize(static_cast<std::size_t>(Bytes));
 
         if (m_handler)
         {
@@ -295,7 +295,7 @@ bool SeqpacketServer::ReceivePackets(int fd)
     }
 }
 
-bool SeqpacketServer::SendQueuedPackets(int fd)
+bool SeqpacketServer::send_queued_packets(int fd)
 {
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
@@ -303,9 +303,9 @@ bool SeqpacketServer::SendQueuedPackets(int fd)
     {
         const Packet &packet = m_queue.front();
 
-        const ssize_t bytes = ::send(fd, packet.data(), packet.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
+        const ssize_t Bytes = ::send(fd, packet.data(), packet.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
 
-        if (bytes < 0)
+        if (Bytes < 0)
         {
             if (errno == EINTR)
                 continue;
@@ -313,11 +313,11 @@ bool SeqpacketServer::SendQueuedPackets(int fd)
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 return true;
 
-            m_logger.Errno("send() failed");
+            m_logger.error_errno("send() failed");
             return false;
         }
 
-        if (static_cast<std::size_t>(bytes) != packet.size())
+        if (static_cast<std::size_t>(Bytes) != packet.size())
         {
             m_logger.error("Unexpected partial SOCK_SEQPACKET send");
             return false;
@@ -329,9 +329,9 @@ bool SeqpacketServer::SendQueuedPackets(int fd)
     return true;
 }
 
-void SeqpacketServer::IoThread()
+void SeqpacketServer::io_thread()
 {
-    int clientFd = -1;
+    int client_fd = -1;
 
     while (!m_stopping.load())
     {
@@ -345,66 +345,66 @@ void SeqpacketServer::IoThread()
 
         nfds_t count = 2;
 
-        if (clientFd >= 0)
+        if (client_fd >= 0)
         {
-            fds[2].fd = clientFd;
+            fds[2].fd = client_fd;
             fds[2].events = POLLIN;
 
-            if (HasQueuedPackets())
+            if (has_queued_packets())
                 fds[2].events |= POLLOUT;
 
             count = 3;
         }
 
-        const int rc = ::poll(fds, count, -1);
+        const int Rc = ::poll(fds, count, -1);
 
-        if (rc < 0)
+        if (Rc < 0)
         {
             if (errno == EINTR)
                 continue;
 
-            m_logger.Errno("poll() failed");
+            m_logger.error_errno("poll() failed");
             break;
         }
 
         if (fds[1].revents & POLLIN)
-            DrainWakeFd();
+            drain_wake_fd();
 
         if (m_stopping.load())
             break;
 
         // Process the existing connection before accepting new clients.
-        if (clientFd >= 0)
+        if (client_fd >= 0)
         {
-            const short events = fds[2].revents;
+            const short Events = fds[2].revents;
 
-            if (events & POLLIN)
+            if (Events & POLLIN)
             {
-                if (!ReceivePackets(clientFd))
+                if (!receive_packets(client_fd))
                 {
-                    DropConnection(clientFd, "Client connection closed");
+                    drop_connection(client_fd, "Client connection closed");
                     continue;
                 }
             }
 
-            if (events & POLLOUT)
+            if (Events & POLLOUT)
             {
-                if (!SendQueuedPackets(clientFd))
+                if (!send_queued_packets(client_fd))
                 {
-                    DropConnection(clientFd, "Client send failed");
+                    drop_connection(client_fd, "Client send failed");
                     continue;
                 }
             }
 
-            if (events & (POLLERR | POLLHUP | POLLNVAL))
+            if (Events & (POLLERR | POLLHUP | POLLNVAL))
             {
-                DropConnection(clientFd, "Client connection lost");
+                drop_connection(client_fd, "Client connection lost");
                 continue;
             }
         }
 
         if (fds[0].revents & POLLIN)
-            AcceptPendingConnections(clientFd);
+            accept_pending_connections(client_fd);
 
         if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
         {
@@ -413,14 +413,14 @@ void SeqpacketServer::IoThread()
         }
     }
 
-    if (clientFd >= 0)
-        ::close(clientFd);
+    if (client_fd >= 0)
+        ::close(client_fd);
 
-    SetConnected(false);
+    set_connected(false);
     m_running.store(false);
 }
 
-void SeqpacketServer::CleanupSetup()
+void SeqpacketServer::cleanup_setup()
 {
     if (m_wakeFd >= 0)
     {

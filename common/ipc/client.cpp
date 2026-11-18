@@ -1,4 +1,4 @@
-#include "client.hpp"
+#include "./client.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -18,9 +18,9 @@
 
 // Connect() may block while establishing the connection.
 // Once connected, packet I/O runs asynchronously.
-bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnectHandler)
+bool SeqpacketClient::connect(PacketHandler handler, DisconnectHandler disconnect_handler)
 {
-    Disconnect();
+    disconnect();
 
     if (m_socketName.size() >= sizeof(sockaddr_un::sun_path))
     {
@@ -29,14 +29,14 @@ bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnec
     }
 
     m_handler = std::move(handler);
-    m_disconnectHandler = std::move(disconnectHandler);
+    m_disconnectHandler = std::move(disconnect_handler);
     m_stopping.store(false);
 
     m_socketFd = ::socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
 
     if (m_socketFd < 0)
     {
-        m_logger.Errno("socket() failed");
+        m_logger.error_errno("socket() failed");
         return false;
     }
 
@@ -46,22 +46,22 @@ bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnec
     std::memcpy(addr.sun_path, m_socketName.data(), m_socketName.size());
     addr.sun_path[m_socketName.size()] = '\0';
 
-    const socklen_t len = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + m_socketName.size() + 1);
+    const socklen_t Len = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + m_socketName.size() + 1);
 
-    if (::connect(m_socketFd, reinterpret_cast<sockaddr *>(&addr), len) < 0)
+    if (::connect(m_socketFd, reinterpret_cast<sockaddr *>(&addr), Len) < 0)
     {
-        m_logger.Errno("connect() failed");
-        Cleanup();
+        m_logger.error_errno("connect() failed");
+        cleanup();
         return false;
     }
 
     // Use nonblocking socket I/O in the I/O thread.
-    const int flags = ::fcntl(m_socketFd, F_GETFL, 0);
+    const int Flags = ::fcntl(m_socketFd, F_GETFL, 0);
 
-    if (flags < 0 || ::fcntl(m_socketFd, F_SETFL, flags | O_NONBLOCK) < 0)
+    if (Flags < 0 || ::fcntl(m_socketFd, F_SETFL, Flags | O_NONBLOCK) < 0)
     {
-        m_logger.Errno("fcntl(O_NONBLOCK) failed");
-        Cleanup();
+        m_logger.error_errno("fcntl(O_NONBLOCK) failed");
+        cleanup();
         return false;
     }
 
@@ -69,8 +69,8 @@ bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnec
 
     if (m_wakeFd < 0)
     {
-        m_logger.Errno("eventfd() failed");
-        Cleanup();
+        m_logger.error_errno("eventfd() failed");
+        cleanup();
         return false;
     }
 
@@ -81,7 +81,7 @@ bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnec
 
     try
     {
-        m_thread = std::thread(&SeqpacketClient::IoThread, this);
+        m_thread = std::thread(&SeqpacketClient::io_thread, this);
     }
     catch (const std::exception &e)
     {
@@ -93,7 +93,7 @@ bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnec
             m_queue.clear();
         }
 
-        Cleanup();
+        cleanup();
         return false;
     }
 
@@ -103,7 +103,7 @@ bool SeqpacketClient::Connect(PacketHandler handler, DisconnectHandler disconnec
 
 // Safe to call concurrently from multiple application threads.
 // Copies the packet and returns without waiting for socket I/O.
-bool SeqpacketClient::Send(const void *data, std::size_t size)
+bool SeqpacketClient::send(const void *data, std::size_t size)
 {
     if (data == nullptr || size == 0)
         return false;
@@ -114,19 +114,19 @@ bool SeqpacketClient::Send(const void *data, std::size_t size)
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
 
-        if (!m_connected.load() || m_stopping.load() || m_queue.size() >= MaxQueuedPackets)
+        if (!m_connected.load() || m_stopping.load() || m_queue.size() >= MAX_QUEUED_PACKETS)
         {
             return false;
         }
 
         m_queue.push_back(std::move(packet));
-        Wake();
+        wake();
     }
 
     return true;
 }
 
-void SeqpacketClient::Disconnect()
+void SeqpacketClient::disconnect()
 {
     m_stopping.store(true);
     m_connected.store(false);
@@ -134,75 +134,75 @@ void SeqpacketClient::Disconnect()
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         m_queue.clear();
-        Wake();
+        wake();
     }
 
     if (m_thread.joinable())
         m_thread.join();
 
-    Cleanup();
+    cleanup();
     m_handler = {};
     m_disconnectHandler = {};
 }
 
-void SeqpacketClient::Wake()
+void SeqpacketClient::wake()
 {
     if (m_wakeFd < 0)
         return;
 
-    const std::uint64_t value = 1;
+    const std::uint64_t Value = 1;
 
     for (;;)
     {
-        const ssize_t rc = ::write(m_wakeFd, &value, sizeof(value));
+        const ssize_t Rc = ::write(m_wakeFd, &Value, sizeof(Value));
 
-        if (rc == sizeof(value))
+        if (Rc == sizeof(Value))
             return;
 
-        if (rc < 0 && errno == EINTR)
+        if (Rc < 0 && errno == EINTR)
             continue;
 
-        if (rc < 0 && errno == EAGAIN)
+        if (Rc < 0 && errno == EAGAIN)
             return;
 
-        m_logger.Errno("eventfd write failed");
+        m_logger.error_errno("eventfd write failed");
         return;
     }
 }
 
-void SeqpacketClient::DrainWakeFd()
+void SeqpacketClient::drain_wake_fd()
 {
     std::uint64_t value;
 
     for (;;)
     {
-        const ssize_t rc = ::read(m_wakeFd, &value, sizeof(value));
+        const ssize_t Rc = ::read(m_wakeFd, &value, sizeof(value));
 
-        if (rc == sizeof(value))
+        if (Rc == sizeof(value))
             continue;
 
-        if (rc < 0 && errno == EINTR)
+        if (Rc < 0 && errno == EINTR)
             continue;
 
         break;
     }
 }
 
-bool SeqpacketClient::HasQueuedPackets()
+bool SeqpacketClient::has_queued_packets()
 {
     std::lock_guard<std::mutex> lock(m_queueMutex);
     return !m_queue.empty();
 }
 
-bool SeqpacketClient::ReceivePackets()
+bool SeqpacketClient::receive_packets()
 {
     Packet packet(65536);
 
     for (;;)
     {
-        const ssize_t bytes = ::recv(m_socketFd, packet.data(), packet.size(), MSG_DONTWAIT);
+        const ssize_t Bytes = ::recv(m_socketFd, packet.data(), packet.size(), MSG_DONTWAIT);
 
-        if (bytes < 0)
+        if (Bytes < 0)
         {
             if (errno == EINTR)
                 continue;
@@ -210,17 +210,17 @@ bool SeqpacketClient::ReceivePackets()
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 return true;
 
-            m_logger.Errno("recv() failed");
+            m_logger.error_errno("recv() failed");
             return false;
         }
 
-        if (bytes == 0)
+        if (Bytes == 0)
         {
             m_logger.info("Server disconnected");
             return false;
         }
 
-        packet.resize(static_cast<std::size_t>(bytes));
+        packet.resize(static_cast<std::size_t>(Bytes));
 
         if (m_handler)
         {
@@ -242,7 +242,7 @@ bool SeqpacketClient::ReceivePackets()
     }
 }
 
-bool SeqpacketClient::SendQueuedPackets()
+bool SeqpacketClient::send_queued_packets()
 {
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
@@ -250,9 +250,9 @@ bool SeqpacketClient::SendQueuedPackets()
     {
         const Packet &packet = m_queue.front();
 
-        const ssize_t bytes = ::send(m_socketFd, packet.data(), packet.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
+        const ssize_t Bytes = ::send(m_socketFd, packet.data(), packet.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
 
-        if (bytes < 0)
+        if (Bytes < 0)
         {
             if (errno == EINTR)
                 continue;
@@ -260,11 +260,11 @@ bool SeqpacketClient::SendQueuedPackets()
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 return true;
 
-            m_logger.Errno("send() failed");
+            m_logger.error_errno("send() failed");
             return false;
         }
 
-        if (static_cast<std::size_t>(bytes) != packet.size())
+        if (static_cast<std::size_t>(Bytes) != packet.size())
         {
             m_logger.error("Unexpected partial SOCK_SEQPACKET send");
             return false;
@@ -276,7 +276,7 @@ bool SeqpacketClient::SendQueuedPackets()
     return true;
 }
 
-void SeqpacketClient::IoThread()
+void SeqpacketClient::io_thread()
 {
     while (!m_stopping.load())
     {
@@ -285,38 +285,38 @@ void SeqpacketClient::IoThread()
         fds[0].fd = m_socketFd;
         fds[0].events = POLLIN;
 
-        if (HasQueuedPackets())
+        if (has_queued_packets())
             fds[0].events |= POLLOUT;
 
         fds[1].fd = m_wakeFd;
         fds[1].events = POLLIN;
 
-        const int rc = ::poll(fds, 2, -1);
+        const int Rc = ::poll(fds, 2, -1);
 
-        if (rc < 0)
+        if (Rc < 0)
         {
             if (errno == EINTR)
                 continue;
 
-            m_logger.Errno("poll() failed");
+            m_logger.error_errno("poll() failed");
             break;
         }
 
         if (fds[1].revents & POLLIN)
-            DrainWakeFd();
+            drain_wake_fd();
 
         if (m_stopping.load())
             break;
 
         if (fds[0].revents & POLLIN)
         {
-            if (!ReceivePackets())
+            if (!receive_packets())
                 break;
         }
 
         if (fds[0].revents & POLLOUT)
         {
-            if (!SendQueuedPackets())
+            if (!send_queued_packets())
                 break;
         }
 
@@ -348,7 +348,7 @@ void SeqpacketClient::IoThread()
     }
 }
 
-void SeqpacketClient::Cleanup()
+void SeqpacketClient::cleanup()
 {
     if (m_socketFd >= 0)
     {

@@ -1,5 +1,4 @@
-#include "logger.hpp"
-#include "sinks.hpp"
+#include "./logger.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -22,19 +21,19 @@ Logger::~Logger()
 // Sink registration
 // --------------------------------------------------
 
-void Logger::addSink(std::unique_ptr<LogSink> sink)
+void Logger::add_sink(std::unique_ptr<LogSink> sink)
 {
     if (!sink)
         return;
 
-    std::lock_guard lock(queueMutex_);
+    std::lock_guard lock(m_queueMutex);
 
-    if (state_ != State::Created)
+    if (m_state != State::Created)
     {
         throw std::logic_error("Cannot add sinks after logger startup or shutdown");
     }
 
-    sinks_.push_back(std::move(sink));
+    m_sinks.push_back(std::move(sink));
 }
 
 // --------------------------------------------------
@@ -63,36 +62,36 @@ void Logger::error(std::string message, const std::source_location &location)
 void Logger::log(LogLevel level, std::string message, const std::source_location &location)
 {
     {
-        std::lock_guard lock(queueMutex_);
+        std::lock_guard lock(m_queueMutex);
 
-        if (state_ == State::Stopping || state_ == State::Stopped)
+        if (m_state == State::Stopping || m_state == State::Stopped)
         {
             return;
         }
 
-        if (state_ == State::Created)
+        if (m_state == State::Created)
         {
-            worker_ = std::jthread([this] { processMessages(); });
+            m_worker = std::jthread([this] { process_messages(); });
 
-            state_ = State::Running;
+            m_state = State::Running;
         }
 
-        queue_.push(LogMessage{level, std::move(message), std::chrono::system_clock::now(), std::this_thread::get_id(),
-                               location});
+        m_queue.push(LogMessage{level, std::move(message), std::chrono::system_clock::now(), std::this_thread::get_id(),
+                                location});
     }
 
-    queueCondition_.notify_one();
+    m_queueCondition.notify_one();
 }
 
 // --------------------------------------------------
 // Worker thread
 // --------------------------------------------------
 
-void Logger::processMessages()
+void Logger::process_messages()
 {
     {
-        std::lock_guard lock(queueMutex_);
-        workerThreadId_ = std::this_thread::get_id();
+        std::lock_guard lock(m_queueMutex);
+        m_workerThreadId = std::this_thread::get_id();
     }
 
     while (true)
@@ -100,22 +99,22 @@ void Logger::processMessages()
         LogMessage message;
 
         {
-            std::unique_lock lock(queueMutex_);
+            std::unique_lock lock(m_queueMutex);
 
-            queueCondition_.wait(lock, [this] { return !queue_.empty() || state_ == State::Stopping; });
+            m_queueCondition.wait(lock, [this] { return !m_queue.empty() || m_state == State::Stopping; });
 
             // Exit only after draining the queue.
-            if (queue_.empty() && state_ == State::Stopping)
+            if (m_queue.empty() && m_state == State::Stopping)
             {
                 break;
             }
 
-            message = std::move(queue_.front());
-            queue_.pop();
+            message = std::move(m_queue.front());
+            m_queue.pop();
         }
 
         // Only the worker accesses sinks.
-        for (const auto &sink : sinks_)
+        for (const auto &sink : m_sinks)
         {
             try
             {
@@ -129,7 +128,7 @@ void Logger::processMessages()
     }
 
     // Flush after all accepted messages are processed.
-    for (const auto &sink : sinks_)
+    for (const auto &sink : m_sinks)
     {
         try
         {
@@ -150,45 +149,45 @@ void Logger::shutdown()
 {
     // A worker cannot join itself.
     {
-        std::lock_guard lock(queueMutex_);
+        std::lock_guard lock(m_queueMutex);
 
-        if (workerThreadId_ == std::this_thread::get_id())
+        if (m_workerThreadId == std::this_thread::get_id())
         {
-            if (state_ == State::Running)
-                state_ = State::Stopping;
+            if (m_state == State::Running)
+                m_state = State::Stopping;
 
-            queueCondition_.notify_all();
+            m_queueCondition.notify_all();
             return;
         }
     }
 
     // Serialize all external shutdown callers.
-    std::lock_guard shutdownLock(shutdownMutex_);
+    std::lock_guard shutdown_lock(m_shutdownMutex);
 
     {
-        std::lock_guard lock(queueMutex_);
+        std::lock_guard lock(m_queueMutex);
 
-        if (state_ == State::Stopped)
+        if (m_state == State::Stopped)
             return;
 
-        if (state_ == State::Created)
+        if (m_state == State::Created)
         {
-            state_ = State::Stopped;
+            m_state = State::Stopped;
             return;
         }
 
-        state_ = State::Stopping;
+        m_state = State::Stopping;
     }
 
-    queueCondition_.notify_all();
+    m_queueCondition.notify_all();
 
-    if (worker_.joinable())
-        worker_.join();
+    if (m_worker.joinable())
+        m_worker.join();
 
     {
-        std::lock_guard lock(queueMutex_);
-        state_ = State::Stopped;
-        workerThreadId_ = {};
+        std::lock_guard lock(m_queueMutex);
+        m_state = State::Stopped;
+        m_workerThreadId = {};
     }
 }
 

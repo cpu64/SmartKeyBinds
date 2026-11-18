@@ -1,18 +1,18 @@
-#include "protocol.hpp"
+#include "./protocol.hpp"
 
-#include "message_types.hpp"
+#include "./message_types.hpp"
 
 #include <cstdint>
 #include <type_traits>
 
-namespace SKB
+namespace kwin_messages
 {
 namespace
 {
 
-constexpr std::size_t HeaderSize = 1;
-constexpr std::size_t MaxPacketSize = 65536;
-constexpr std::size_t MaxStringSize = MaxPacketSize - HeaderSize - 4;
+constexpr std::size_t HEADER_SIZE = 1;
+constexpr std::size_t MAX_PACKET_SIZE = 65536;
+constexpr std::size_t MAX_STRING_SIZE = MAX_PACKET_SIZE - HEADER_SIZE - 4;
 
 // -----------------------------------------------------------------------------
 // Writer
@@ -21,12 +21,12 @@ constexpr std::size_t MaxStringSize = MaxPacketSize - HeaderSize - 4;
 class Writer
 {
   public:
-    void WriteU8(std::uint8_t value)
+    void write_u8(std::uint8_t value)
     {
         m_data.push_back(static_cast<std::byte>(value));
     }
 
-    void WriteU32(std::uint32_t value)
+    void write_u32(std::uint32_t value)
     {
         m_data.push_back(static_cast<std::byte>((value >> 24) & 0xFF));
         m_data.push_back(static_cast<std::byte>((value >> 16) & 0xFF));
@@ -34,26 +34,26 @@ class Writer
         m_data.push_back(static_cast<std::byte>(value & 0xFF));
     }
 
-    void WriteI32(std::int32_t value)
+    void write_i32(std::int32_t value)
     {
-        WriteU32(static_cast<std::uint32_t>(value));
+        write_u32(static_cast<std::uint32_t>(value));
     }
 
-    void WriteU64(std::uint64_t value)
+    void write_u64(std::uint64_t value)
     {
         for (int i = 7; i >= 0; --i)
             m_data.push_back(static_cast<std::byte>((value >> (i * 8)) & 0xFF));
     }
 
-    void WriteString(const std::string &value)
+    void write_string(const std::string &value)
     {
-        WriteU32(static_cast<std::uint32_t>(value.size()));
+        write_u32(static_cast<std::uint32_t>(value.size()));
 
         for (unsigned char c : value)
             m_data.push_back(static_cast<std::byte>(c));
     }
 
-    Packet Finish()
+    Packet finish()
     {
         return std::move(m_data);
     }
@@ -73,18 +73,18 @@ class Reader
     {
     }
 
-    bool ReadU8(std::uint8_t &value)
+    bool read_u8(std::uint8_t &value)
     {
-        if (Remaining() < 1)
+        if (remaining() < 1)
             return false;
 
         value = std::to_integer<std::uint8_t>(m_data[m_offset++]);
         return true;
     }
 
-    bool ReadU32(std::uint32_t &value)
+    bool read_u32(std::uint32_t &value)
     {
-        if (Remaining() < 4)
+        if (remaining() < 4)
             return false;
 
         value = (std::uint32_t(std::to_integer<std::uint8_t>(m_data[m_offset])) << 24) |
@@ -96,20 +96,20 @@ class Reader
         return true;
     }
 
-    bool ReadI32(std::int32_t &value)
+    bool read_i32(std::int32_t &value)
     {
         std::uint32_t raw;
 
-        if (!ReadU32(raw))
+        if (!read_u32(raw))
             return false;
 
         value = static_cast<std::int32_t>(raw);
         return true;
     }
 
-    bool ReadU64(std::uint64_t &value)
+    bool read_u64(std::uint64_t &value)
     {
-        if (Remaining() < 8)
+        if (remaining() < 8)
             return false;
 
         value = 0;
@@ -122,14 +122,14 @@ class Reader
         return true;
     }
 
-    bool ReadString(std::string &value)
+    bool read_string(std::string &value)
     {
         std::uint32_t size;
 
-        if (!ReadU32(size))
+        if (!read_u32(size))
             return false;
 
-        if (size > MaxStringSize || Remaining() < size)
+        if (size > MAX_STRING_SIZE || remaining() < size)
             return false;
 
         value.clear();
@@ -143,14 +143,14 @@ class Reader
         return true;
     }
 
-    std::size_t Remaining() const
+    std::size_t remaining() const
     {
         return m_data.size() - m_offset;
     }
 
-    bool IsFinished() const
+    bool is_finished() const
     {
-        return Remaining() == 0;
+        return remaining() == 0;
     }
 
   private:
@@ -162,56 +162,56 @@ class Reader
 // Serialization helpers
 // -----------------------------------------------------------------------------
 
-template <typename T> void WriteMessage(Writer &writer, const T &message);
+template <typename T> void write_message(Writer &writer, const T &message);
 
-template <> void WriteMessage(Writer &writer, const ActiveWindowChanged &message)
+template <> void write_message(Writer &writer, const ActiveWindowChanged &message)
 {
-    writer.WriteString(message.name);
+    writer.write_string(message.name);
 }
 
-template <> void WriteMessage(Writer &writer, const GetCursorPosition &message)
+template <> void write_message(Writer &writer, const GetCursorPosition &message)
 {
-    writer.WriteU64(message.id);
+    writer.write_u64(message.id);
 }
 
-template <> void WriteMessage(Writer &writer, const CursorPosition &message)
+template <> void write_message(Writer &writer, const CursorPosition &message)
 {
-    writer.WriteU64(message.id);
-    writer.WriteI32(message.x);
-    writer.WriteI32(message.y);
+    writer.write_u64(message.id);
+    writer.write_i32(message.x);
+    writer.write_i32(message.y);
 }
 
 // -----------------------------------------------------------------------------
 // Deserialization helpers
 // -----------------------------------------------------------------------------
 
-template <typename T> std::expected<Message, ProtocolError> ReadMessage(Reader &reader);
+template <typename T> std::expected<Message, ProtocolError> read_message(Reader &reader);
 
-template <> std::expected<Message, ProtocolError> ReadMessage<ActiveWindowChanged>(Reader &reader)
+template <> std::expected<Message, ProtocolError> read_message<ActiveWindowChanged>(Reader &reader)
 {
     ActiveWindowChanged message;
 
-    if (!reader.ReadString(message.name))
+    if (!reader.read_string(message.name))
         return std::unexpected(ProtocolError::InvalidString);
 
     return Message{std::move(message)};
 }
 
-template <> std::expected<Message, ProtocolError> ReadMessage<GetCursorPosition>(Reader &reader)
+template <> std::expected<Message, ProtocolError> read_message<GetCursorPosition>(Reader &reader)
 {
     GetCursorPosition message{};
 
-    if (!reader.ReadU64(message.id))
+    if (!reader.read_u64(message.id))
         return std::unexpected(ProtocolError::InvalidPayload);
 
     return Message{message};
 }
 
-template <> std::expected<Message, ProtocolError> ReadMessage<CursorPosition>(Reader &reader)
+template <> std::expected<Message, ProtocolError> read_message<CursorPosition>(Reader &reader)
 {
     CursorPosition message{};
 
-    if (!reader.ReadU64(message.id) || !reader.ReadI32(message.x) || !reader.ReadI32(message.y))
+    if (!reader.read_u64(message.id) || !reader.read_i32(message.x) || !reader.read_i32(message.y))
     {
         return std::unexpected(ProtocolError::InvalidPayload);
     }
@@ -225,7 +225,7 @@ template <> std::expected<Message, ProtocolError> ReadMessage<CursorPosition>(Re
 // Public API
 // -----------------------------------------------------------------------------
 
-Packet Serialize(const Message &message)
+Packet serialize(const Message &message)
 {
     Writer writer;
 
@@ -235,55 +235,55 @@ Packet Serialize(const Message &message)
 
             if constexpr (std::is_same_v<T, ActiveWindowChanged>)
             {
-                writer.WriteU8(static_cast<std::uint8_t>(MessageType::ActiveWindowChanged));
+                writer.write_u8(static_cast<std::uint8_t>(MessageType::ActiveWindowChanged));
             }
             else if constexpr (std::is_same_v<T, GetCursorPosition>)
             {
-                writer.WriteU8(static_cast<std::uint8_t>(MessageType::GetCursorPosition));
+                writer.write_u8(static_cast<std::uint8_t>(MessageType::GetCursorPosition));
             }
             else if constexpr (std::is_same_v<T, CursorPosition>)
             {
-                writer.WriteU8(static_cast<std::uint8_t>(MessageType::CursorPosition));
+                writer.write_u8(static_cast<std::uint8_t>(MessageType::CursorPosition));
             }
 
-            WriteMessage(writer, value);
+            write_message(writer, value);
         },
         message);
 
-    return writer.Finish();
+    return writer.finish();
 }
 
-std::expected<Message, ProtocolError> Deserialize(std::span<const std::byte> packet)
+std::expected<Message, ProtocolError> deserialize(std::span<const std::byte> packet)
 {
-    if (packet.size() < HeaderSize)
+    if (packet.size() < HEADER_SIZE)
         return std::unexpected(ProtocolError::PacketTooSmall);
 
-    if (packet.size() > MaxPacketSize)
+    if (packet.size() > MAX_PACKET_SIZE)
         return std::unexpected(ProtocolError::PacketTooLarge);
 
     Reader reader(packet);
 
-    std::uint8_t rawType;
+    std::uint8_t raw_type;
 
-    if (!reader.ReadU8(rawType))
+    if (!reader.read_u8(raw_type))
         return std::unexpected(ProtocolError::PacketTooSmall);
 
-    const auto type = static_cast<MessageType>(rawType);
+    const auto Type = static_cast<MessageType>(raw_type);
 
     std::expected<Message, ProtocolError> result = std::unexpected(ProtocolError::UnknownMessageType);
 
-    switch (type)
+    switch (Type)
     {
     case MessageType::ActiveWindowChanged:
-        result = ReadMessage<ActiveWindowChanged>(reader);
+        result = read_message<ActiveWindowChanged>(reader);
         break;
 
     case MessageType::GetCursorPosition:
-        result = ReadMessage<GetCursorPosition>(reader);
+        result = read_message<GetCursorPosition>(reader);
         break;
 
     case MessageType::CursorPosition:
-        result = ReadMessage<CursorPosition>(reader);
+        result = read_message<CursorPosition>(reader);
         break;
 
     default:
@@ -293,10 +293,10 @@ std::expected<Message, ProtocolError> Deserialize(std::span<const std::byte> pac
     if (!result)
         return result;
 
-    if (!reader.IsFinished())
+    if (!reader.is_finished())
         return std::unexpected(ProtocolError::InvalidPayload);
 
     return result;
 }
 
-} // namespace SKB
+} // namespace kwin_messages

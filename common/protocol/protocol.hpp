@@ -1,6 +1,6 @@
 #pragma once
 
-#include "messages.hpp"
+#include "./messages.hpp"
 
 #include <cstddef>
 #include <expected>
@@ -8,7 +8,7 @@
 #include <variant>
 #include <vector>
 
-namespace SKB
+namespace kwin_messages
 {
 
 using Packet = std::vector<std::byte>;
@@ -24,8 +24,8 @@ enum class ProtocolError
     InvalidString
 };
 
-Packet Serialize(const Message &message);
+Packet serialize(const Message &message);
 
-std::expected<Message, ProtocolError> Deserialize(std::span<const std::byte> packet);
+std::expected<Message, ProtocolError> deserialize(std::span<const std::byte> packet);
 
-} // namespace SKB
+} // namespace kwin_messages

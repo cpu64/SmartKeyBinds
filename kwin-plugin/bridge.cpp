@@ -11,9 +11,9 @@
 namespace KWin
 {
 
-static constexpr auto SocketName = "/tmp/smartkeybinds.sock";
+static constexpr auto SOCKET_NAME = "/tmp/smartkeybinds.sock";
 
-std::vector<std::unique_ptr<logging::LogSink>> CreateSinks()
+std::vector<std::unique_ptr<logging::LogSink>> create_sinks()
 {
     std::vector<std::unique_ptr<logging::LogSink>> sinks;
 
@@ -21,9 +21,9 @@ std::vector<std::unique_ptr<logging::LogSink>> CreateSinks()
     return sinks;
 }
 
-void Bridge::packetHandler(const SeqpacketServer::Packet &packet)
+void Bridge::packet_handler(const SeqpacketServer::Packet &packet)
 {
-    auto result = SKB::Deserialize(packet);
+    auto result = kwin_messages::deserialize(packet);
 
     if (!result)
     {
@@ -35,17 +35,17 @@ void Bridge::packetHandler(const SeqpacketServer::Packet &packet)
         [this](const auto &message) {
             using T = std::decay_t<decltype(message)>;
 
-            if constexpr (std::is_same_v<T, SKB::GetCursorPosition>)
+            if constexpr (std::is_same_v<T, kwin_messages::GetCursorPosition>)
             {
-                sendCursorPos(message.id);
+                send_cursor_pos(message.id);
             }
         },
         *result);
 }
 
 Bridge::Bridge()
-    : m_logger(CreateSinks()), m_server(SocketName, m_logger, [this](const SeqpacketServer::Packet &packet) {
-          if (!QMetaObject::invokeMethod(this, [this, packet] { packetHandler(packet); }, Qt::QueuedConnection))
+    : m_logger(create_sinks()), m_server(SOCKET_NAME, m_logger, [this](const SeqpacketServer::Packet &packet) {
+          if (!QMetaObject::invokeMethod(this, [this, packet] { packet_handler(packet); }, Qt::QueuedConnection))
           {
               m_logger.warning("Failed to schedule packet handler");
           }
@@ -55,7 +55,7 @@ Bridge::Bridge()
 
     Workspace *workspace = Workspace::self();
 
-    connect(workspace, &Workspace::windowActivated, this, &Bridge::windowActivated);
+    connect(workspace, &Workspace::windowActivated, this, &Bridge::window_activated);
 }
 
 Bridge::~Bridge()
@@ -63,34 +63,34 @@ Bridge::~Bridge()
     // m_logger.shutdown(); //bad the m_server hasnt stopped yet
 }
 
-void Bridge::windowActivated(KWin::Window *window)
+void Bridge::window_activated(KWin::Window *window)
 {
     if (!window)
         return;
 
-    const std::string name = window->resourceName().toStdString();
+    const std::string Name = window->resourceName().toStdString();
 
-    m_logger.info("Active window: " + name);
+    m_logger.info("Active window: " + Name);
 
-    SKB::ActiveWindowChanged message{.name = name};
+    kwin_messages::ActiveWindowChanged message{.name = Name};
 
-    auto packet = SKB::Serialize(message);
+    auto packet = kwin_messages::serialize(message);
 
-    if (!m_server.Send(packet))
+    if (!m_server.send(packet))
     {
         m_logger.warning("Failed to send active window change");
     }
 }
 
-void Bridge::sendCursorPos(std::uint64_t id)
+void Bridge::send_cursor_pos(std::uint64_t id)
 {
     QPoint pos = Cursors::self()->mouse()->pos().toPoint();
 
-    SKB::CursorPosition message{.id = id, .x = pos.x(), .y = pos.y()};
+    kwin_messages::CursorPosition message{.id = id, .x = pos.x(), .y = pos.y()};
 
-    auto packet = SKB::Serialize(message);
+    auto packet = kwin_messages::serialize(message);
 
-    if (!m_server.Send(packet))
+    if (!m_server.send(packet))
     {
         m_logger.warning("Failed to send cursor position");
     }

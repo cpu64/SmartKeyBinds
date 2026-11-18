@@ -1,8 +1,6 @@
-#include "logger.hpp"
-#include "sinks.hpp"
+#include "./logger.hpp"
 
 #include <atomic>
-#include <chrono>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -29,13 +27,13 @@ class TestRunner
         {
             test();
 
-            ++passed_;
+            ++m_passed;
 
             std::cout << "[       OK ] " << name << '\n';
         }
         catch (const std::exception &e)
         {
-            ++failed_;
+            ++m_failed;
 
             std::cerr << "[  FAILED  ] " << name << ": " << e.what() << '\n';
         }
@@ -50,19 +48,19 @@ class TestRunner
     void summary() const
     {
         std::cout << "\n============================\n"
-                  << "Tests passed: " << passed_ << '\n'
-                  << "Tests failed: " << failed_ << '\n'
+                  << "Tests passed: " << m_passed << '\n'
+                  << "Tests failed: " << m_failed << '\n'
                   << "============================\n";
     }
 
     int result() const
     {
-        return failed_ == 0 ? 0 : 1;
+        return m_failed == 0 ? 0 : 1;
     }
 
   private:
-    int passed_ = 0;
-    int failed_ = 0;
+    int m_passed = 0;
+    int m_failed = 0;
 };
 
 // ==================================================
@@ -74,33 +72,33 @@ class TestSink final : public LogSink
   public:
     void write(const LogMessage &message) override
     {
-        messages_.push_back(message);
+        m_messages.push_back(message);
     }
 
     void flush() override
     {
-        ++flushCount_;
+        ++m_flushCount;
     }
 
     std::size_t count() const
     {
-        return messages_.size();
+        return m_messages.size();
     }
 
-    int flushCount() const
+    int flush_count() const
     {
-        return flushCount_;
+        return m_flushCount;
     }
 
     const std::vector<LogMessage> &messages() const
     {
-        return messages_;
+        return m_messages;
     }
 
   private:
     // Accessed exclusively by the worker thread.
-    std::vector<LogMessage> messages_;
-    int flushCount_ = 0;
+    std::vector<LogMessage> m_messages;
+    int m_flushCount = 0;
 };
 
 // ==================================================
@@ -113,7 +111,7 @@ class SlowSink final : public LogSink
     void write(const LogMessage &) override
     {
         std::this_thread::sleep_for(2ms);
-        ++count_;
+        ++m_count;
     }
 
     void flush() override
@@ -122,11 +120,11 @@ class SlowSink final : public LogSink
 
     int count() const
     {
-        return count_.load();
+        return m_count.load();
     }
 
   private:
-    std::atomic<int> count_{0};
+    std::atomic<int> m_count{0};
 };
 
 // ==================================================
@@ -159,31 +157,31 @@ int main()
     // --------------------------------------------------
 
     tests.run("Independent logger instances", [&] {
-        Logger loggerA;
-        Logger loggerB;
+        Logger logger_a;
+        Logger logger_b;
 
-        auto sinkA = std::make_unique<TestSink>();
-        auto sinkB = std::make_unique<TestSink>();
+        auto sink_a = std::make_unique<TestSink>();
+        auto sink_b = std::make_unique<TestSink>();
 
-        auto *ptrA = sinkA.get();
-        auto *ptrB = sinkB.get();
+        auto *ptr_a = sink_a.get();
+        auto *ptr_b = sink_b.get();
 
-        loggerA.addSink(std::move(sinkA));
-        loggerB.addSink(std::move(sinkB));
+        logger_a.add_sink(std::move(sink_a));
+        logger_b.add_sink(std::move(sink_b));
 
-        loggerA.info("Message A");
-        loggerB.info("Message B");
+        logger_a.info("Message A");
+        logger_b.info("Message B");
 
-        loggerA.shutdown();
-        loggerB.shutdown();
+        logger_a.shutdown();
+        logger_b.shutdown();
 
-        tests.assert(ptrA->count() == 1, "Logger A received an incorrect message count");
+        tests.assert(ptr_a->count() == 1, "Logger A received an incorrect message count");
 
-        tests.assert(ptrB->count() == 1, "Logger B received an incorrect message count");
+        tests.assert(ptr_b->count() == 1, "Logger B received an incorrect message count");
 
-        tests.assert(ptrA->messages()[0].message == "Message A", "Logger A received an incorrect message");
+        tests.assert(ptr_a->messages()[0].message == "Message A", "Logger A received an incorrect message");
 
-        tests.assert(ptrB->messages()[0].message == "Message B", "Logger B received an incorrect message");
+        tests.assert(ptr_b->messages()[0].message == "Message B", "Logger B received an incorrect message");
     });
 
     // --------------------------------------------------
@@ -194,19 +192,19 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
-        constexpr int threadCount = 10;
-        constexpr int messagesPerThread = 1000;
+        constexpr int ThreadCount = 10;
+        constexpr int MessagesPerThread = 1000;
 
         std::vector<std::jthread> threads;
 
-        for (int i = 0; i < threadCount; ++i)
+        for (int i = 0; i < ThreadCount; ++i)
         {
             threads.emplace_back([i, &logger] {
-                for (int j = 0; j < messagesPerThread; ++j)
+                for (int j = 0; j < MessagesPerThread; ++j)
                 {
                     logger.info("Thread " + std::to_string(i) + " message " + std::to_string(j));
                 }
@@ -218,9 +216,9 @@ int main()
 
         logger.shutdown();
 
-        tests.assert(sinkPtr->count() == threadCount * messagesPerThread, "Some messages were lost");
+        tests.assert(sink_ptr->count() == ThreadCount * MessagesPerThread, "Some messages were lost");
 
-        tests.assert(sinkPtr->flushCount() == 1, "Sink was not flushed exactly once");
+        tests.assert(sink_ptr->flush_count() == 1, "Sink was not flushed exactly once");
     });
 
     // --------------------------------------------------
@@ -231,9 +229,9 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
         logger.shutdown();
 
@@ -241,9 +239,9 @@ int main()
         logger.warning("Ignored message");
         logger.error("Ignored message");
 
-        tests.assert(sinkPtr->count() == 0, "Messages were accepted after shutdown");
+        tests.assert(sink_ptr->count() == 0, "Messages were accepted after shutdown");
 
-        tests.assert(sinkPtr->flushCount() == 0, "Sink should not have been flushed without startup");
+        tests.assert(sink_ptr->flush_count() == 0, "Sink should not have been flushed without startup");
     });
 
     // --------------------------------------------------
@@ -254,23 +252,23 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
         logger.info("Accepted message");
 
         logger.shutdown();
 
-        const auto countAfterShutdown = sinkPtr->count();
+        const auto CountAfterShutdown = sink_ptr->count();
 
         logger.info("Ignored");
         logger.warning("Ignored");
         logger.error("Ignored");
 
-        tests.assert(sinkPtr->count() == countAfterShutdown, "Messages were accepted after shutdown");
+        tests.assert(sink_ptr->count() == CountAfterShutdown, "Messages were accepted after shutdown");
 
-        tests.assert(sinkPtr->count() == 1, "Accepted message was not delivered");
+        tests.assert(sink_ptr->count() == 1, "Accepted message was not delivered");
     });
 
     // --------------------------------------------------
@@ -281,9 +279,9 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
         logger.info("Test message");
 
@@ -291,9 +289,9 @@ int main()
         logger.shutdown();
         logger.shutdown();
 
-        tests.assert(sinkPtr->count() == 1, "Unexpected message count");
+        tests.assert(sink_ptr->count() == 1, "Unexpected message count");
 
-        tests.assert(sinkPtr->flushCount() == 1, "Sink was flushed more than once");
+        tests.assert(sink_ptr->flush_count() == 1, "Sink was flushed more than once");
     });
 
     // --------------------------------------------------
@@ -304,13 +302,13 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
-        constexpr int messageCount = 1000;
+        constexpr int MessageCount = 1000;
 
-        for (int i = 0; i < messageCount; ++i)
+        for (int i = 0; i < MessageCount; ++i)
         {
             logger.info("Message " + std::to_string(i));
         }
@@ -326,9 +324,9 @@ int main()
 
         logger.shutdown();
 
-        tests.assert(sinkPtr->count() == messageCount, "Messages were lost during concurrent shutdown");
+        tests.assert(sink_ptr->count() == MessageCount, "Messages were lost during concurrent shutdown");
 
-        tests.assert(sinkPtr->flushCount() == 1, "Sink was flushed more than once");
+        tests.assert(sink_ptr->flush_count() == 1, "Sink was flushed more than once");
     });
 
     // --------------------------------------------------
@@ -339,19 +337,19 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
-        constexpr int threadCount = 8;
-        constexpr int messagesPerThread = 10000;
+        constexpr int ThreadCount = 8;
+        constexpr int MessagesPerThread = 10000;
 
         std::atomic<int> ready{0};
         std::atomic<bool> start{false};
 
         std::vector<std::jthread> threads;
 
-        for (int i = 0; i < threadCount; ++i)
+        for (int i = 0; i < ThreadCount; ++i)
         {
             threads.emplace_back([i, &logger, &ready, &start] {
                 ++ready;
@@ -359,7 +357,7 @@ int main()
                 while (!start.load())
                     std::this_thread::yield();
 
-                for (int j = 0; j < messagesPerThread; ++j)
+                for (int j = 0; j < MessagesPerThread; ++j)
                 {
                     logger.info("Thread " + std::to_string(i) + " message " + std::to_string(j));
                 }
@@ -367,7 +365,7 @@ int main()
         }
 
         // Wait until all producers are ready.
-        while (ready.load() != threadCount)
+        while (ready.load() != ThreadCount)
             std::this_thread::yield();
 
         start = true;
@@ -379,15 +377,15 @@ int main()
         // Those calls must be silently rejected.
         threads.clear();
 
-        const auto acceptedCount = sinkPtr->count();
+        const auto AcceptedCount = sink_ptr->count();
 
         logger.info("Must be ignored");
 
-        tests.assert(sinkPtr->count() == acceptedCount, "Messages were accepted after shutdown completed");
+        tests.assert(sink_ptr->count() == AcceptedCount, "Messages were accepted after shutdown completed");
 
-        tests.assert(acceptedCount <= threadCount * messagesPerThread, "Invalid message count");
+        tests.assert(AcceptedCount <= ThreadCount * MessagesPerThread, "Invalid message count");
 
-        tests.assert(sinkPtr->flushCount() == (acceptedCount > 0 ? 1 : 0), "Unexpected sink flush count");
+        tests.assert(sink_ptr->flush_count() == (AcceptedCount > 0 ? 1 : 0), "Unexpected sink flush count");
     });
 
     // --------------------------------------------------
@@ -398,20 +396,20 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<SlowSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
-        constexpr int messageCount = 50;
+        constexpr int MessageCount = 50;
 
-        for (int i = 0; i < messageCount; ++i)
+        for (int i = 0; i < MessageCount; ++i)
         {
             logger.info("Slow message");
         }
 
         logger.shutdown();
 
-        tests.assert(sinkPtr->count() == messageCount, "Shutdown did not drain the queue");
+        tests.assert(sink_ptr->count() == MessageCount, "Shutdown did not drain the queue");
     });
 
     // --------------------------------------------------
@@ -421,24 +419,24 @@ int main()
     tests.run("Throwing sink isolation", [&] {
         Logger logger;
 
-        auto throwingSink = std::make_unique<ThrowingSink>();
-        auto recordingSink = std::make_unique<TestSink>();
+        auto throwing_sink = std::make_unique<ThrowingSink>();
+        auto recording_sink = std::make_unique<TestSink>();
 
-        auto *recordingPtr = recordingSink.get();
+        auto *recording_ptr = recording_sink.get();
 
-        logger.addSink(std::move(throwingSink));
-        logger.addSink(std::move(recordingSink));
+        logger.add_sink(std::move(throwing_sink));
+        logger.add_sink(std::move(recording_sink));
 
-        constexpr int messageCount = 100;
+        constexpr int MessageCount = 100;
 
-        for (int i = 0; i < messageCount; ++i)
+        for (int i = 0; i < MessageCount; ++i)
         {
             logger.info("Test message");
         }
 
         logger.shutdown();
 
-        tests.assert(recordingPtr->count() == messageCount,
+        tests.assert(recording_ptr->count() == MessageCount,
                      "Throwing sink prevented other sinks from receiving messages");
     });
 
@@ -457,21 +455,21 @@ int main()
         Logger logger;
 
         auto sink = std::make_unique<TestSink>();
-        auto *sinkPtr = sink.get();
+        auto *sink_ptr = sink.get();
 
-        logger.addSink(std::move(sink));
+        logger.add_sink(std::move(sink));
 
-        const auto expectedLine = std::source_location::current().line() + 2;
+        const auto ExpectedLine = std::source_location::current().line() + 2;
 
         logger.info("Source location test");
 
         logger.shutdown();
 
-        tests.assert(sinkPtr->count() == 1, "Expected one message");
+        tests.assert(sink_ptr->count() == 1, "Expected one message");
 
-        const auto &message = sinkPtr->messages()[0];
+        const auto &message = sink_ptr->messages()[0];
 
-        tests.assert(message.location.line() == expectedLine, "Incorrect source line");
+        tests.assert(message.location.line() == ExpectedLine, "Incorrect source line");
 
         tests.assert(std::string(message.location.file_name()).find("./common/logger/test.cpp") != std::string::npos,
                      "Incorrect source file");

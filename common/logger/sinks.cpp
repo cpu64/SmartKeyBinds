@@ -1,4 +1,4 @@
-#include "sinks.hpp"
+#include "./sinks.hpp"
 
 #include <ctime>
 #include <iomanip>
@@ -16,13 +16,13 @@ namespace
 // Formatting helpers
 // --------------------------------------------------
 
-constexpr int LogLevelWidth = 7;
+constexpr int LOG_LEVEL_WIDTH = 7;
 
-constexpr const char *ResetColor = "\033[0m";
-constexpr const char *WarningColor = "\033[33m";
-constexpr const char *ErrorColor = "\033[31m";
+constexpr const char *RESET_COLOR = "\033[0m";
+constexpr const char *WARNING_COLOR = "\033[33m";
+constexpr const char *ERROR_COLOR = "\033[31m";
 
-const char *levelName(LogLevel level)
+const char *level_name(LogLevel level)
 {
     switch (level)
     {
@@ -39,46 +39,46 @@ const char *levelName(LogLevel level)
     return "UNKNOWN";
 }
 
-const char *levelColor(LogLevel level)
+const char *level_color(LogLevel level)
 {
     switch (level)
     {
     case LogLevel::Info:
-        return ResetColor;
+        return RESET_COLOR;
 
     case LogLevel::Warning:
-        return WarningColor;
+        return WARNING_COLOR;
 
     case LogLevel::Error:
-        return ErrorColor;
+        return ERROR_COLOR;
     }
 
-    return ResetColor;
+    return RESET_COLOR;
 }
 
-std::string formatMessage(const LogMessage &message)
+std::string format_message(const LogMessage &message)
 {
     using namespace std::chrono;
 
-    const auto seconds = floor<std::chrono::seconds>(message.timestamp);
+    const auto Seconds = floor<std::chrono::seconds>(message.timestamp);
 
-    const auto milliseconds = duration_cast<std::chrono::milliseconds>(message.timestamp - seconds).count();
+    const auto Milliseconds = duration_cast<std::chrono::milliseconds>(message.timestamp - Seconds).count();
 
-    const auto time = system_clock::to_time_t(message.timestamp);
+    const auto Time = system_clock::to_time_t(message.timestamp);
 
     std::tm tm{};
 
 #ifdef _WIN32
     localtime_s(&tm, &time);
 #else
-    localtime_r(&time, &tm);
+    localtime_r(&Time, &tm);
 #endif
 
     std::ostringstream output;
 
-    output << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << milliseconds
-           << " [" << std::left << std::setw(LogLevelWidth) << levelName(message.level) << std::right << "] ["
-           << message.threadId << "] " << message.location.file_name() << ':' << message.location.line() << " ("
+    output << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << Milliseconds
+           << " [" << std::left << std::setw(LOG_LEVEL_WIDTH) << level_name(message.level) << std::right << "] ["
+           << message.thread_id << "] " << message.location.file_name() << ':' << message.location.line() << " ("
            << message.location.function_name() << ") " << message.message;
 
     return output.str();
@@ -94,7 +94,7 @@ void ConsoleSink::write(const LogMessage &message)
 {
     std::ostream &output = message.level == LogLevel::Error ? std::cerr : std::cout;
 
-    output << levelColor(message.level) << formatMessage(message) << ResetColor << '\n';
+    output << level_color(message.level) << format_message(message) << RESET_COLOR << '\n';
 
     if (!output)
     {
@@ -117,9 +117,9 @@ void ConsoleSink::flush()
 // FileSink
 // ==================================================
 
-FileSink::FileSink(const std::string &filename) : file_(filename, std::ios::out | std::ios::app)
+FileSink::FileSink(const std::string &filename) : m_file(filename, std::ios::out | std::ios::app)
 {
-    if (!file_.is_open())
+    if (!m_file.is_open())
     {
         throw std::runtime_error("Failed to open log file: " + filename);
     }
@@ -127,18 +127,18 @@ FileSink::FileSink(const std::string &filename) : file_(filename, std::ios::out 
 
 void FileSink::write(const LogMessage &message)
 {
-    file_ << formatMessage(message) << '\n';
+    m_file << format_message(message) << '\n';
 
-    if (!file_)
+    if (!m_file)
     {
         throw std::runtime_error("Failed to write to log file");
     }
 
     // Flush every message to reduce data loss
     // if the application terminates unexpectedly.
-    file_.flush();
+    m_file.flush();
 
-    if (!file_)
+    if (!m_file)
     {
         throw std::runtime_error("Failed to flush log file");
     }
@@ -146,9 +146,9 @@ void FileSink::write(const LogMessage &message)
 
 void FileSink::flush()
 {
-    file_.flush();
+    m_file.flush();
 
-    if (!file_)
+    if (!m_file)
     {
         throw std::runtime_error("Failed to flush log file");
     }

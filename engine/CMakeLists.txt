@@ -10,14 +10,14 @@ add_executable(smartkeybinds
     fake_input.cpp
     input_listener.cpp
     context.cpp
-    macro_registry.cpp
 
     # Overlay
-    overlay/OverlayManager.cpp
-    overlay/image_loader.cpp
-    overlay/wlr-layer-shell-protocol.c
-    overlay/xdg-shell-protocol.c
-    overlay/viewporter-protocol.c
+    OverlayManager.cpp
+    image_loader.cpp
+
+    ${PROJECT_SOURCE_DIR}/external/wayland/wlr-layer-shell-protocol.c
+    ${PROJECT_SOURCE_DIR}/external/wayland/xdg-shell-protocol.c
+    ${PROJECT_SOURCE_DIR}/external/wayland/viewporter-protocol.c
 
     ${MACRO_SOURCES}
 )
@@ -26,7 +26,8 @@ target_include_directories(smartkeybinds
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/macros
-        ${CMAKE_CURRENT_SOURCE_DIR}/overlay
+        ${PROJECT_SOURCE_DIR}/external/wayland
+        ${PROJECT_SOURCE_DIR}/external/image
 )
 
 target_link_libraries(smartkeybinds

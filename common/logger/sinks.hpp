@@ -32,7 +32,7 @@ class FileSink final : public LogSink
     void flush() override;
 
   private:
-    std::ofstream file_;
+    std::ofstream m_file;
 };
 
 } // namespace logging

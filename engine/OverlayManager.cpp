@@ -20,21 +20,21 @@ OverlayManager::OverlayManager()
     if (!initialize_event_fd())
         throw std::runtime_error("Failed to initialize eventfd");
 
-    worker_ = std::thread(&OverlayManager::worker_loop, this);
+    m_worker = std::thread(&OverlayManager::worker_loop, this);
 
-    std::unique_lock lock(queue_mutex_);
+    std::unique_lock lock(m_queue_mutex);
 
-    startup_cv_.wait(lock, [this] { return startup_complete_; });
+    m_startup_cv.wait(lock, [this] { return m_startup_complete; });
 
-    if (!startup_success_)
+    if (!m_startup_success)
     {
         lock.unlock();
 
-        if (worker_.joinable())
-            worker_.join();
+        if (m_worker.joinable())
+            m_worker.join();
 
-        close(event_fd_);
-        event_fd_ = -1;
+        close(m_event_fd);
+        m_event_fd = -1;
 
         throw std::runtime_error("Failed to initialize Wayland");
     }
@@ -43,31 +43,31 @@ OverlayManager::OverlayManager()
 OverlayManager::~OverlayManager()
 {
     {
-        std::lock_guard lock(queue_mutex_);
-        stopping_ = true;
+        std::lock_guard lock(m_queue_mutex);
+        m_stopping = true;
     }
 
     wake_worker();
 
-    if (worker_.joinable())
-        worker_.join();
+    if (m_worker.joinable())
+        m_worker.join();
 
-    if (event_fd_ >= 0)
+    if (m_event_fd >= 0)
     {
-        close(event_fd_);
-        event_fd_ = -1;
+        close(m_event_fd);
+        m_event_fd = -1;
     }
 }
 
 bool OverlayManager::enqueue(Command command)
 {
     {
-        std::lock_guard lock(queue_mutex_);
+        std::lock_guard lock(m_queue_mutex);
 
-        if (stopping_)
+        if (m_stopping)
             return false;
 
-        commands_.push_back(std::move(command));
+        m_commands.push_back(std::move(command));
     }
 
     wake_worker();
@@ -85,12 +85,12 @@ OverlayHandle OverlayManager::create(Image image, uint32_t viewport_width, uint3
     OverlayHandle handle;
 
     {
-        std::lock_guard lock(queue_mutex_);
+        std::lock_guard lock(m_queue_mutex);
 
-        if (stopping_ || next_handle_ == 0)
+        if (m_stopping || m_next_handle == 0)
             return 0;
 
-        handle = next_handle_++;
+        handle = m_next_handle++;
 
         Command command{};
         command.type = CommandType::Create;
@@ -99,7 +99,7 @@ OverlayHandle OverlayManager::create(Image image, uint32_t viewport_width, uint3
         command.viewport_width = viewport_width;
         command.viewport_height = viewport_height;
 
-        commands_.push_back(std::move(command));
+        m_commands.push_back(std::move(command));
     }
 
     wake_worker();
@@ -143,37 +143,37 @@ void OverlayManager::on_global(void *data, wl_registry *registry, uint32_t name,
 
     if (std::strcmp(interface, wl_compositor_interface.name) == 0)
     {
-        if (!manager->compositor_)
+        if (!manager->m_compositor)
         {
-            manager->compositor_ = static_cast<wl_compositor *>(
+            manager->m_compositor = static_cast<wl_compositor *>(
                 wl_registry_bind(registry, name, &wl_compositor_interface, std::min(version, 4u)));
         }
     }
     else if (std::strcmp(interface, wl_shm_interface.name) == 0)
     {
-        if (!manager->shm_)
+        if (!manager->m_shm)
         {
-            manager->shm_ = static_cast<wl_shm *>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
+            manager->m_shm = static_cast<wl_shm *>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
         }
     }
     else if (std::strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0)
     {
-        if (!manager->layer_shell_)
+        if (!manager->m_layer_shell)
         {
-            const uint32_t supported_version =
+            const uint32_t SupportedVersion =
                 std::min(version, static_cast<uint32_t>(zwlr_layer_shell_v1_interface.version));
 
-            manager->layer_shell_version_ = supported_version;
+            manager->m_layer_shell_version = SupportedVersion;
 
-            manager->layer_shell_ = static_cast<zwlr_layer_shell_v1 *>(
-                wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, supported_version));
+            manager->m_layer_shell = static_cast<zwlr_layer_shell_v1 *>(
+                wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, SupportedVersion));
         }
     }
     else if (std::strcmp(interface, wp_viewporter_interface.name) == 0)
     {
-        if (!manager->viewporter_)
+        if (!manager->m_viewporter)
         {
-            manager->viewporter_ =
+            manager->m_viewporter =
                 static_cast<wp_viewporter *>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
         }
     }
@@ -186,27 +186,27 @@ void OverlayManager::on_global_remove(void *, wl_registry *, uint32_t)
 
 bool OverlayManager::initialize_wayland()
 {
-    display_ = wl_display_connect(nullptr);
+    m_display = wl_display_connect(nullptr);
 
-    if (!display_)
+    if (!m_display)
         return false;
 
-    registry_ = wl_display_get_registry(display_);
+    m_registry = wl_display_get_registry(m_display);
 
-    if (!registry_)
+    if (!m_registry)
         return false;
 
-    static const wl_registry_listener registry_listener = {OverlayManager::on_global, OverlayManager::on_global_remove};
+    static const wl_registry_listener RegistryListener = {OverlayManager::on_global, OverlayManager::on_global_remove};
 
-    if (wl_registry_add_listener(registry_, &registry_listener, this) < 0)
+    if (wl_registry_add_listener(m_registry, &RegistryListener, this) < 0)
     {
         return false;
     }
 
-    if (wl_display_roundtrip(display_) < 0)
+    if (wl_display_roundtrip(m_display) < 0)
         return false;
 
-    if (!compositor_ || !shm_ || !layer_shell_ || !viewporter_)
+    if (!m_compositor || !m_shm || !m_layer_shell || !m_viewporter)
         return false;
 
     return true;
@@ -214,70 +214,70 @@ bool OverlayManager::initialize_wayland()
 
 void OverlayManager::cleanup_wayland()
 {
-    for (auto &[handle, overlay] : overlays_)
+    for (auto &[Handle, overlay] : m_overlays)
     {
         cleanup_overlay(*overlay);
         overlay->state = OverlayState::Destroyed;
     }
 
-    overlays_.clear();
+    m_overlays.clear();
 
-    if (layer_shell_)
+    if (m_layer_shell)
     {
-        zwlr_layer_shell_v1_destroy(layer_shell_);
-        layer_shell_ = nullptr;
+        zwlr_layer_shell_v1_destroy(m_layer_shell);
+        m_layer_shell = nullptr;
     }
 
-    if (viewporter_)
+    if (m_viewporter)
     {
-        wp_viewporter_destroy(viewporter_);
-        viewporter_ = nullptr;
+        wp_viewporter_destroy(m_viewporter);
+        m_viewporter = nullptr;
     }
 
-    if (shm_)
+    if (m_shm)
     {
-        wl_shm_destroy(shm_);
-        shm_ = nullptr;
+        wl_shm_destroy(m_shm);
+        m_shm = nullptr;
     }
 
-    if (compositor_)
+    if (m_compositor)
     {
-        wl_compositor_destroy(compositor_);
-        compositor_ = nullptr;
+        wl_compositor_destroy(m_compositor);
+        m_compositor = nullptr;
     }
 
-    if (registry_)
+    if (m_registry)
     {
-        wl_registry_destroy(registry_);
-        registry_ = nullptr;
+        wl_registry_destroy(m_registry);
+        m_registry = nullptr;
     }
 
-    if (display_)
+    if (m_display)
     {
-        wl_display_disconnect(display_);
-        display_ = nullptr;
+        wl_display_disconnect(m_display);
+        m_display = nullptr;
     }
 }
 
 void OverlayManager::worker_loop()
 {
-    const bool initialized = initialize_wayland();
+    const bool Initialized = initialize_wayland();
 
-    running_ = initialized;
+    m_running = Initialized;
 
     {
-        std::lock_guard lock(queue_mutex_);
+        std::lock_guard lock(m_queue_mutex);
 
-        startup_success_ = initialized;
-        startup_complete_ = true;
+        m_startup_success = Initialized;
+        m_startup_complete = true;
 
-        if (!initialized)
-            stopping_ = true;
+        if (!Initialized)
+            m_stopping = true;
     }
 
-    startup_cv_.notify_one();
+    m_startup_cv.notify_one();
 
-    if (!initialized)
+    if (!Initialized)
     {
         cleanup_wayland();
         return;
@@ -290,9 +290,9 @@ void OverlayManager::worker_loop()
 
         // Check whether shutdown was requested.
         {
-            std::lock_guard lock(queue_mutex_);
+            std::lock_guard lock(m_queue_mutex);
 
-            if (stopping_ && commands_.empty())
+            if (m_stopping && m_commands.empty())
                 break;
         }
 
@@ -303,7 +303,7 @@ void OverlayManager::worker_loop()
 
     cleanup_wayland();
 
-    running_ = false;
+    m_running = false;
 }
 
 void OverlayManager::process_commands()
@@ -313,13 +313,13 @@ void OverlayManager::process_commands()
         Command command;
 
         {
-            std::lock_guard lock(queue_mutex_);
+            std::lock_guard lock(m_queue_mutex);
 
-            if (commands_.empty())
+            if (m_commands.empty())
                 break;
 
-            command = std::move(commands_.front());
-            commands_.pop_front();
+            command = std::move(m_commands.front());
+            m_commands.pop_front();
         }
 
         process_command(command);
@@ -340,7 +340,7 @@ void OverlayManager::process_command(Command &command)
 
         Overlay *ptr = overlay.get();
 
-        overlays_.emplace(command.handle, std::move(overlay));
+        m_overlays.emplace(command.handle, std::move(overlay));
 
         if (!create_overlay(*ptr, std::move(command.image)))
         {
@@ -352,9 +352,9 @@ void OverlayManager::process_command(Command &command)
     }
 
     case CommandType::Show: {
-        auto it = overlays_.find(command.handle);
+        auto it = m_overlays.find(command.handle);
 
-        if (it == overlays_.end())
+        if (it == m_overlays.end())
             break;
 
         Overlay &overlay = *it->second;
@@ -401,9 +401,9 @@ void OverlayManager::process_command(Command &command)
     }
 
     case CommandType::Hide: {
-        auto it = overlays_.find(command.handle);
+        auto it = m_overlays.find(command.handle);
 
-        if (it == overlays_.end())
+        if (it == m_overlays.end())
             break;
 
         Overlay &overlay = *it->second;
@@ -428,7 +428,7 @@ void OverlayManager::process_command(Command &command)
         // The previous buffer may still be in use by the compositor.
         // buffer_busy will be cleared by on_buffer_release().
 
-        if (wl_display_flush(display_) < 0 && errno != EAGAIN)
+        if (wl_display_flush(m_display) < 0 && errno != EAGAIN)
         {
             overlay.state = OverlayState::Failed;
             break;
@@ -438,9 +438,9 @@ void OverlayManager::process_command(Command &command)
     }
 
     case CommandType::Destroy: {
-        auto it = overlays_.find(command.handle);
+        auto it = m_overlays.find(command.handle);
 
-        if (it == overlays_.end())
+        if (it == m_overlays.end())
             break;
 
         Overlay &overlay = *it->second;
@@ -465,8 +465,8 @@ void OverlayManager::process_command(Command &command)
 
                 overlay.surface_has_buffer = false;
 
-                if (wl_display_flush(display_) < 0 && errno != EAGAIN)
-                    running_ = false;
+                if (wl_display_flush(m_display) < 0 && errno != EAGAIN)
+                    m_running = false;
             }
 
             break;
@@ -475,7 +475,7 @@ void OverlayManager::process_command(Command &command)
         cleanup_overlay(overlay);
         overlay.state = OverlayState::Destroyed;
 
-        overlays_.erase(it);
+        m_overlays.erase(it);
 
         break;
     }
@@ -537,20 +537,20 @@ bool OverlayManager::create_overlay(Overlay &overlay, Image image)
         return false;
     }
 
-    const uint64_t minimum_stride = static_cast<uint64_t>(image.width) * 4;
+    const uint64_t MinimumStride = static_cast<uint64_t>(image.width) * 4;
 
-    if (image.stride < minimum_stride)
+    if (image.stride < MinimumStride)
         return false;
 
-    const uint64_t required_size = static_cast<uint64_t>(image.stride) * image.height;
+    const uint64_t RequiredSize = static_cast<uint64_t>(image.stride) * image.height;
 
-    if (required_size > INT32_MAX || required_size > image.pixels.size())
+    if (RequiredSize > INT32_MAX || RequiredSize > image.pixels.size())
         return false;
 
     overlay.width = image.width;
     overlay.height = image.height;
     overlay.stride = image.stride;
-    overlay.buffer_size = static_cast<size_t>(required_size);
+    overlay.buffer_size = static_cast<size_t>(RequiredSize);
 
     // Create shared memory file.
     overlay.shm_fd = memfd_create("smartkeybinds-overlay", MFD_CLOEXEC);
@@ -574,7 +574,7 @@ bool OverlayManager::create_overlay(Overlay &overlay, Image image)
     std::memcpy(overlay.pixels, image.pixels.data(), overlay.buffer_size);
 
     // Create SHM pool.
-    wl_shm_pool *pool = wl_shm_create_pool(shm_, overlay.shm_fd, static_cast<int32_t>(overlay.buffer_size));
+    wl_shm_pool *pool = wl_shm_create_pool(m_shm, overlay.shm_fd, static_cast<int32_t>(overlay.buffer_size));
 
     if (!pool)
         return false;
@@ -588,13 +588,13 @@ bool OverlayManager::create_overlay(Overlay &overlay, Image image)
     if (!overlay.buffer)
         return false;
 
-    static const wl_buffer_listener buffer_listener = {&OverlayManager::on_buffer_release};
+    static const wl_buffer_listener BufferListener = {&OverlayManager::on_buffer_release};
 
-    if (wl_buffer_add_listener(overlay.buffer, &buffer_listener, &overlay) < 0)
+    if (wl_buffer_add_listener(overlay.buffer, &BufferListener, &overlay) < 0)
         return false;
 
     // Create surface.
-    overlay.surface = wl_compositor_create_surface(compositor_);
+    overlay.surface = wl_compositor_create_surface(m_compositor);
 
     if (!overlay.surface)
         return false;
@@ -602,22 +602,22 @@ bool OverlayManager::create_overlay(Overlay &overlay, Image image)
     wl_surface_set_buffer_scale(overlay.surface, 1);
 
     // Create viewport for fractional buffer-to-surface scaling.
-    overlay.viewport = wp_viewporter_get_viewport(viewporter_, overlay.surface);
+    overlay.viewport = wp_viewporter_get_viewport(m_viewporter, overlay.surface);
 
     if (!overlay.viewport)
         return false;
 
     // Create layer surface.
     overlay.layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        layer_shell_, overlay.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "smartkeybinds-overlay");
+        m_layer_shell, overlay.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "smartkeybinds-overlay");
 
     if (!overlay.layer_surface)
         return false;
 
-    static const zwlr_layer_surface_v1_listener layer_listener = {&OverlayManager::on_configure,
-                                                                  &OverlayManager::on_closed};
+    static const zwlr_layer_surface_v1_listener LayerListener = {&OverlayManager::on_configure,
+                                                                 &OverlayManager::on_closed};
 
-    if (zwlr_layer_surface_v1_add_listener(overlay.layer_surface, &layer_listener, &overlay) < 0)
+    if (zwlr_layer_surface_v1_add_listener(overlay.layer_surface, &LayerListener, &overlay) < 0)
         return false;
 
     // Set initial properties.
@@ -638,7 +638,7 @@ bool OverlayManager::create_overlay(Overlay &overlay, Image image)
     // Initial commit without a buffer requests configure.
     wl_surface_commit(overlay.surface);
 
-    return wl_display_flush(display_) >= 0 || errno == EAGAIN;
+    return wl_display_flush(m_display) >= 0 || errno == EAGAIN;
 }
 
 void OverlayManager::cleanup_overlay(Overlay &overlay)
@@ -686,20 +686,20 @@ void OverlayManager::cleanup_overlay(Overlay &overlay)
 
 bool OverlayManager::initialize_event_fd()
 {
-    event_fd_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    m_event_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
 
-    return event_fd_ >= 0;
+    return m_event_fd >= 0;
 }
 
 void OverlayManager::wake_worker()
 {
-    const uint64_t value = 1;
+    const uint64_t Value = 1;
 
     ssize_t result;
 
     do
     {
-        result = write(event_fd_, &value, sizeof(value));
+        result = write(m_event_fd, &Value, sizeof(Value));
     } while (result < 0 && errno == EINTR);
 
     // EAGAIN means the counter is already saturated,
@@ -709,16 +709,16 @@ void OverlayManager::wake_worker()
 bool OverlayManager::dispatch_wayland_events()
 {
     // Dispatch pending events before preparing to read.
-    while (wl_display_prepare_read(display_) != 0)
+    while (wl_display_prepare_read(m_display) != 0)
     {
-        if (wl_display_dispatch_pending(display_) < 0)
+        if (wl_display_dispatch_pending(m_display) < 0)
             return false;
     }
 
     bool want_write = false;
 
     // Flush outgoing Wayland requests.
-    if (wl_display_flush(display_) < 0)
+    if (wl_display_flush(m_display) < 0)
     {
         if (errno == EAGAIN)
         {
@@ -726,7 +726,7 @@ bool OverlayManager::dispatch_wayland_events()
         }
         else
         {
-            wl_display_cancel_read(display_);
+            wl_display_cancel_read(m_display);
             return false;
         }
     }
@@ -734,11 +734,11 @@ bool OverlayManager::dispatch_wayland_events()
     pollfd fds[2]{};
 
     // Wayland display.
-    fds[0].fd = wl_display_get_fd(display_);
+    fds[0].fd = wl_display_get_fd(m_display);
     fds[0].events = POLLIN | (want_write ? POLLOUT : 0);
 
     // Command wakeup.
-    fds[1].fd = event_fd_;
+    fds[1].fd = m_event_fd;
     fds[1].events = POLLIN;
 
     int result;
@@ -750,33 +750,33 @@ bool OverlayManager::dispatch_wayland_events()
 
     if (result < 0)
     {
-        wl_display_cancel_read(display_);
+        wl_display_cancel_read(m_display);
         return false;
     }
 
     // Check for Wayland connection errors.
     if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL))
     {
-        wl_display_cancel_read(display_);
+        wl_display_cancel_read(m_display);
         return false;
     }
 
     // Read incoming Wayland events.
     if (fds[0].revents & POLLIN)
     {
-        if (wl_display_read_events(display_) < 0)
+        if (wl_display_read_events(m_display) < 0)
             return false;
     }
     else
     {
-        wl_display_cancel_read(display_);
+        wl_display_cancel_read(m_display);
     }
 
     // Flush pending outgoing requests if the socket
     // previously couldn't accept them.
     if (fds[0].revents & POLLOUT)
     {
-        if (wl_display_flush(display_) < 0 && errno != EAGAIN)
+        if (wl_display_flush(m_display) < 0 && errno != EAGAIN)
             return false;
     }
 
@@ -787,7 +787,7 @@ bool OverlayManager::dispatch_wayland_events()
 
         while (true)
         {
-            ssize_t bytes = read(event_fd_, &value, sizeof(value));
+            ssize_t bytes = read(m_event_fd, &value, sizeof(value));
 
             if (bytes == sizeof(value))
                 continue;
@@ -809,7 +809,7 @@ bool OverlayManager::dispatch_wayland_events()
         return false;
 
     // Dispatch events received from Wayland.
-    if (wl_display_dispatch_pending(display_) < 0)
+    if (wl_display_dispatch_pending(m_display) < 0)
         return false;
 
     return true;
@@ -832,7 +832,7 @@ bool OverlayManager::request_mapping(Overlay &overlay, int x, int y)
     overlay.y = y;
 
     // Reassert the layer after unmapping.
-    if (layer_shell_version_ >= 2)
+    if (m_layer_shell_version >= 2)
     {
         zwlr_layer_surface_v1_set_layer(overlay.layer_surface, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY);
     }
@@ -861,7 +861,7 @@ bool OverlayManager::request_mapping(Overlay &overlay, int x, int y)
     // Commit without a buffer to request a fresh configure.
     wl_surface_commit(overlay.surface);
 
-    return wl_display_flush(display_) >= 0 || errno == EAGAIN;
+    return wl_display_flush(m_display) >= 0 || errno == EAGAIN;
 }
 
 bool OverlayManager::attach_buffer(Overlay &overlay)
@@ -887,7 +887,7 @@ bool OverlayManager::attach_buffer(Overlay &overlay)
 
     overlay.mapping_requested = false;
 
-    return wl_display_flush(display_) >= 0 || errno == EAGAIN;
+    return wl_display_flush(m_display) >= 0 || errno == EAGAIN;
 }
 
 void OverlayManager::try_show_overlay(Overlay &overlay)
@@ -920,7 +920,7 @@ void OverlayManager::on_buffer_released(Overlay &overlay)
         overlay.state = OverlayState::Destroyed;
 
         if (overlay.manager)
-            overlay.manager->overlays_.erase(overlay.handle);
+            overlay.manager->m_overlays.erase(overlay.handle);
 
         return;
     }

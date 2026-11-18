@@ -3,23 +3,21 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "./viewporter-client-protocol.h"
-#include "./wlr-layer-shell-client-protocol.h"
+#include "viewporter-client-protocol.h"
+#include "wlr-layer-shell-client-protocol.h"
 #include <wayland-client.h>
-
-#include <cstddef>
-
-#include <cstdint>
-#include <vector>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <sys/eventfd.h>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace overlay
 {
@@ -130,36 +128,36 @@ class OverlayManager
     };
 
     // Worker thread
-    std::thread worker_;
-    std::atomic<bool> running_{false};
+    std::thread m_worker;
+    std::atomic<bool> m_running{false};
 
-    int event_fd_ = -1;
+    int m_event_fd = -1;
 
     // Command queue
-    std::mutex queue_mutex_;
-    std::deque<Command> commands_;
+    std::mutex m_queue_mutex;
+    std::deque<Command> m_commands;
 
-    bool stopping_ = false;
+    bool m_stopping = false;
 
-    std::condition_variable startup_cv_;
-    bool startup_complete_ = false;
-    bool startup_success_ = false;
+    std::condition_variable m_startup_cv;
+    bool m_startup_complete = false;
+    bool m_startup_success = false;
 
     // Wayland connection (worker thread only)
-    wl_display *display_ = nullptr;
-    wl_registry *registry_ = nullptr;
-    wl_compositor *compositor_ = nullptr;
-    wl_shm *shm_ = nullptr;
-    zwlr_layer_shell_v1 *layer_shell_ = nullptr;
-    wp_viewporter *viewporter_ = nullptr;
+    wl_display *m_display = nullptr;
+    wl_registry *m_registry = nullptr;
+    wl_compositor *m_compositor = nullptr;
+    wl_shm *m_shm = nullptr;
+    zwlr_layer_shell_v1 *m_layer_shell = nullptr;
+    wp_viewporter *m_viewporter = nullptr;
 
-    uint32_t layer_shell_version_ = 0;
+    uint32_t m_layer_shell_version = 0;
 
     // Overlay storage (worker thread only)
-    std::unordered_map<OverlayHandle, std::unique_ptr<Overlay>> overlays_;
+    std::unordered_map<OverlayHandle, std::unique_ptr<Overlay>> m_overlays;
 
     // Handle allocation
-    OverlayHandle next_handle_ = 1;
+    OverlayHandle m_next_handle = 1;
 
     bool initialize_event_fd();
     void wake_worker();

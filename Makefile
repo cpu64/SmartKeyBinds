@@ -1,5 +1,7 @@
 BUILD_DIR := build
 CMAKE := cmake
+CC := gcc
+CXX := clang++
 CMAKE_ARGS ?=
 PARALLEL ?= --parallel
 CLANG_FORMAT := clang-format
@@ -42,7 +44,7 @@ FORMAT_DIR_common := common
 FORMAT_DIR_plugin := kwin-plugin
 FORMAT_DIR_smartkeybinds := engine macros
 
-LINT_DIR_all := common engine kwin-plugin
+LINT_DIR_all := common engine kwin-plugin macros
 LINT_DIR_common := common
 LINT_DIR_plugin := kwin-plugin
 LINT_DIR_smartkeybinds := engine
@@ -50,6 +52,8 @@ LINT_DIR_smartkeybinds := engine
 # Configure a particular build.
 define configure
 	$(CMAKE) -S . -B $(BUILD_DIR)/$(1) \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
 		$(CONFIG_ARGS_$(1)) $(CMAKE_ARGS)
 endef
 
@@ -94,6 +98,7 @@ define lint_sources
 	$(call configure,$(1))
 	$(CLANG_TIDY) \
 		--config-file=.clang-tidy \
+		--extra-arg-before=-Wno-unknown-warning-option \
 		-p $(BUILD_DIR)/$(1) \
 		$$(find $(LINT_DIR_$(1)) \
 			-type f \

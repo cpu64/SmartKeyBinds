@@ -1,7 +1,6 @@
 #pragma once
 
 #include <linux/uinput.h>
-
 #include <time.h>
 #include <unistd.h>
 

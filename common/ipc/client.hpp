@@ -20,47 +20,47 @@ class SeqpacketClient
     using PacketHandler = std::function<void(const Packet &)>;
     using DisconnectHandler = std::function<void()>;
 
-    static constexpr std::size_t MaxQueuedPackets = 256;
+    static constexpr std::size_t MAX_QUEUED_PACKETS = 256;
 
-    explicit SeqpacketClient(std::string_view socketName) : m_socketName(socketName)
+    explicit SeqpacketClient(std::string_view socket_name) : m_socketName(socket_name)
     {
         auto sink = std::make_unique<logging::ConsoleSink>();
-        m_logger.addSink(std::move(sink));
+        m_logger.add_sink(std::move(sink));
     }
 
     ~SeqpacketClient()
     {
-        Disconnect();
+        disconnect();
         m_logger.shutdown();
     }
 
     SeqpacketClient(const SeqpacketClient &) = delete;
     SeqpacketClient &operator=(const SeqpacketClient &) = delete;
 
-    bool Connect(PacketHandler handler, DisconnectHandler disconnectHandler = {});
+    bool connect(PacketHandler handler, DisconnectHandler disconnect_handler = {});
 
-    bool Send(const void *data, std::size_t size);
+    bool send(const void *data, std::size_t size);
 
-    bool Send(const Packet &packet)
+    bool send(const Packet &packet)
     {
-        return Send(packet.data(), packet.size());
+        return send(packet.data(), packet.size());
     }
 
-    void Disconnect();
+    void disconnect();
 
-    bool IsConnected() const
+    bool is_connected() const
     {
         return m_connected.load();
     }
 
   private:
-    void Wake();
-    void DrainWakeFd();
-    bool HasQueuedPackets();
-    bool ReceivePackets();
-    bool SendQueuedPackets();
-    void IoThread();
-    void Cleanup();
+    void wake();
+    void drain_wake_fd();
+    bool has_queued_packets();
+    bool receive_packets();
+    bool send_queued_packets();
+    void io_thread();
+    void cleanup();
 
     std::string m_socketName;
     PacketHandler m_handler;

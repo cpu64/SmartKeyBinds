@@ -23,20 +23,20 @@ class ThreadPool
     ThreadPool(const ThreadPool &) = delete;
     ThreadPool &operator=(const ThreadPool &) = delete;
 
-    template <typename Function, typename... Args> void enqueue(Function &&function, Args &&...args)
+    template <typename Function, typename... ArgumentTypes> void enqueue(Function &&function, ArgumentTypes &&...args)
     {
-        auto task = std::bind(std::forward<Function>(function), std::forward<Args>(args)...);
+        auto task = std::bind(std::forward<Function>(function), std::forward<ArgumentTypes>(args)...);
 
         {
-            std::lock_guard<std::mutex> lock(mutex);
+            std::lock_guard<std::mutex> lock(m_mutex);
 
             // Reserve an available worker if one exists.
-            if (idle_workers > 0)
+            if (m_idle_workers > 0)
             {
-                tasks.emplace(std::move(task));
-                --idle_workers;
+                m_tasks.emplace(std::move(task));
+                --m_idle_workers;
 
-                condition.notify_one();
+                m_condition.notify_one();
                 return;
             }
         }
@@ -47,26 +47,26 @@ class ThreadPool
     }
 
   private:
-    ThreadPool() : idle_workers(MIN_THREADS)
+    ThreadPool() : m_idle_workers(MIN_THREADS)
     {
-        workers.reserve(MIN_THREADS);
+        m_workers.reserve(MIN_THREADS);
 
         for (std::size_t i = 0; i < MIN_THREADS; ++i)
         {
-            workers.emplace_back(&ThreadPool::worker, this);
+            m_workers.emplace_back(&ThreadPool::worker, this);
         }
     }
 
     ~ThreadPool()
     {
         {
-            std::lock_guard<std::mutex> lock(mutex);
-            stopping = true;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_stopping = true;
         }
 
-        condition.notify_all();
+        m_condition.notify_all();
 
-        for (auto &worker : workers)
+        for (auto &worker : m_workers)
         {
             if (worker.joinable())
             {
@@ -82,34 +82,34 @@ class ThreadPool
             std::function<void()> task;
 
             {
-                std::unique_lock<std::mutex> lock(mutex);
+                std::unique_lock<std::mutex> lock(m_mutex);
 
-                condition.wait(lock, [this] { return stopping || !tasks.empty(); });
+                m_condition.wait(lock, [this] { return m_stopping || !m_tasks.empty(); });
 
-                if (stopping && tasks.empty())
+                if (m_stopping && m_tasks.empty())
                 {
                     return;
                 }
 
-                task = std::move(tasks.front());
-                tasks.pop();
+                task = std::move(m_tasks.front());
+                m_tasks.pop();
             }
 
             task();
 
             {
-                std::lock_guard<std::mutex> lock(mutex);
-                ++idle_workers;
+                std::lock_guard<std::mutex> lock(m_mutex);
+                ++m_idle_workers;
             }
         }
     }
 
-    std::vector<std::thread> workers;
-    std::queue<std::function<void()>> tasks;
+    std::vector<std::thread> m_workers;
+    std::queue<std::function<void()>> m_tasks;
 
-    std::mutex mutex;
-    std::condition_variable condition;
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
 
-    std::size_t idle_workers = 0;
-    bool stopping = false;
+    std::size_t m_idle_workers = 0;
+    bool m_stopping = false;
 };

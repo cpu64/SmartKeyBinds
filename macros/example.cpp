@@ -1,6 +1,5 @@
 #include "./script.hpp"
 
-#include <iostream>
 #include <atomic>
 
 extern Context ctx;
@@ -26,7 +25,6 @@ void macro_b(input_event event)
 {
     // Macro implementation
 }
-
 
 // ============================================================
 // 2. INPUT EVENTS
@@ -55,7 +53,6 @@ void macro_c(input_event event)
     pass_event_on(event);
 }
 
-
 // ============================================================
 // 3. MODIFYING / REMAPPING EVENTS
 // ============================================================
@@ -69,7 +66,6 @@ void macro_d(input_event event)
 
     pass_event_on(event);
 }
-
 
 // ============================================================
 // 4. SIMULATING KEY PRESSES
@@ -91,7 +87,6 @@ void macro_e(input_event event)
     key_press(KEY_C);
     key_press(KEY_LEFTCTRL, UP);
 }
-
 
 // ============================================================
 // 5. KEYBOARD MODIFIER HELPERS
@@ -129,7 +124,6 @@ void example_modifier_combinations()
     key_press(KEY_LEFTALT, UP);
 }
 
-
 // ============================================================
 // 6. CHECKING KEYBOARD STATE
 // ============================================================
@@ -153,7 +147,6 @@ void macro_keyboard_state(input_event event)
     pass_event_on(event);
 }
 
-
 // ============================================================
 // 7. ACTIVE WINDOW INFORMATION
 // ============================================================
@@ -162,7 +155,7 @@ REGISTER_KEY_MACRO(KEY_F2, macro_window)
 
 void macro_window(input_event event)
 {
-    std::string window = ctx.GetActiveWindowName();
+    std::string window = ctx.get_active_window_name();
 
     if (window == "Firefox")
     {
@@ -176,7 +169,6 @@ void macro_window(input_event event)
     pass_event_on(event);
 }
 
-
 // ============================================================
 // 8. MOUSE POSITION
 // ============================================================
@@ -185,7 +177,7 @@ REGISTER_KEY_MACRO(KEY_F3, macro_mouse)
 
 void macro_mouse(input_event event)
 {
-    auto mouse = ctx.GetMousePosition();
+    auto mouse = ctx.get_mouse_position();
 
     if (mouse)
     {
@@ -197,7 +189,6 @@ void macro_mouse(input_event event)
 
     pass_event_on(event);
 }
-
 
 // ============================================================
 // 9. IMAGE LOADING
@@ -216,7 +207,6 @@ void example_load_image()
     }
 }
 
-
 // ============================================================
 // 10. OVERLAY MANAGEMENT
 // ============================================================
@@ -229,11 +219,7 @@ void example_create_overlay()
 
     if (load_image("./assets/example.bmp", image))
     {
-        overlay_id = ctx.overlay_manager.create(
-            image,
-            image.width,
-            image.height
-        );
+        overlay_id = ctx.overlay_manager.create(image, image.width, image.height);
     }
 }
 
@@ -253,7 +239,6 @@ void example_hide_overlay()
         ctx.overlay_manager.hide(overlay_id);
     }
 }
-
 
 // ============================================================
 // 11. TIMING / DELAYS
@@ -276,7 +261,6 @@ void macro_timing(input_event event)
     key_press(KEY_C);
 }
 
-
 // ============================================================
 // 12. EVENT TIMESTAMPS
 // ============================================================
@@ -286,15 +270,12 @@ REGISTER_KEY_MACRO(KEY_F5, macro_timestamp)
 void macro_timestamp(input_event event)
 {
     // Event timestamp in milliseconds
-    int64_t timestamp =
-    (int64_t)event.time.tv_sec * 1000 +
-    event.time.tv_usec / 1000;
+    int64_t timestamp = (int64_t)event.time.tv_sec * 1000 + event.time.tv_usec / 1000;
 
     // Use timestamp for timing calculations
 
     pass_event_on(event);
 }
-
 
 // ============================================================
 // 13. SHARED STATE / ATOMIC VARIABLES
